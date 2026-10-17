@@ -273,36 +273,46 @@ def update_profile():
         return jsonify({"error": "Unauthorized"}), 401
 
     data = request.get_json() or {}
-    display_name = data.get("display_name", "").strip()
-    bio = data.get("bio", "").strip()
-    dob = data.get("dob", "").strip()
-    gender = data.get("gender", "unspecified").strip()
-    phone = data.get("phone", "").strip()
-    avatar_url = data.get("avatar_url", "").strip()
+    conn = database.get_db()
+    current_user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not current_user:
+        conn.close()
+        return jsonify({"error": "Người dùng không tồn tại"}), 404
 
+    # Keep existing values if not explicitly provided
+    display_name = data.get("display_name", current_user["display_name"]).strip() if "display_name" in data else current_user["display_name"]
     if not display_name:
+        conn.close()
         return jsonify({"error": "Tên hiển thị không được để trống"}), 400
 
-    conn = database.get_db()
-    if phone:
-        exist = conn.execute("SELECT id FROM users WHERE phone = ? AND id != ?", (phone, user_id)).fetchone()
-        if exist:
-            conn.close()
-            return jsonify({"error": "Số điện thoại này đã được sử dụng bởi tài khoản khác"}), 400
+    bio = data.get("bio", current_user["bio"] or "").strip() if "bio" in data else (current_user["bio"] or "")
+    dob = data.get("dob", current_user["dob"] or "").strip() if "dob" in data else (current_user["dob"] or "")
+    gender = data.get("gender", current_user["gender"] or "unspecified").strip() if "gender" in data else (current_user["gender"] or "unspecified")
+    avatar_url = data.get("avatar_url", current_user["avatar_url"]).strip() if "avatar_url" in data else current_user["avatar_url"]
 
-    if avatar_url:
+    phone = current_user["phone"] or None
+    if "phone" in data:
+        new_phone = data.get("phone", "").strip()
+        if new_phone:
+            exist = conn.execute("SELECT id FROM users WHERE phone = ? AND id != ?", (new_phone, user_id)).fetchone()
+            if exist:
+                conn.close()
+                return jsonify({"error": "Số điện thoại này đã được sử dụng bởi tài khoản khác"}), 400
+            phone = new_phone
+        else:
+            phone = None
+
+    try:
         conn.execute("""
             UPDATE users SET display_name = ?, bio = ?, dob = ?, gender = ?, phone = ?, avatar_url = ?
             WHERE id = ?
         """, (display_name, bio, dob, gender, phone, avatar_url, user_id))
-    else:
-        conn.execute("""
-            UPDATE users SET display_name = ?, bio = ?, dob = ?, gender = ?, phone = ?
-            WHERE id = ?
-        """, (display_name, bio, dob, gender, phone, user_id))
-        
-    conn.commit()
-    
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        print("[ERROR update_profile]:", e)
+        return jsonify({"error": f"Lỗi cập nhật: {str(e)}"}), 500
+
     updated_user = conn.execute("""
         SELECT id, username, phone, display_name, avatar_url, status, bio, dob, gender, last_seen, created_at
         FROM users WHERE id = ?

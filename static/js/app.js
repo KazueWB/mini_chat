@@ -1401,51 +1401,92 @@ class ChatApp {
 
     handleAvatarUpload(file) {
         if (!file || !this.currentUser) return;
-        if (!file.type.startsWith("image/")) {
-            alert("Vui lòng chọn một tệp hình ảnh!");
-            return;
-        }
+        
+        const changeBtn = document.getElementById("btn-change-avatar");
+        const originalBtnHTML = changeBtn ? changeBtn.innerHTML : '<i class="fa-solid fa-camera"></i>';
+        if (changeBtn) changeBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const img = new Image();
-            img.onload = async () => {
-                const canvas = document.createElement("canvas");
-                const size = 180;
-                canvas.width = size;
-                canvas.height = size;
-                const ctx = canvas.getContext("2d");
-
-                // Crop center square
-                const minSide = Math.min(img.width, img.height);
-                const sx = (img.width - minSide) / 2;
-                const sy = (img.height - minSide) / 2;
-                ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
-
-                const base64DataUrl = canvas.toDataURL("image/jpeg", 0.85);
-
-                try {
-                    const res = await fetch("/api/profile/update", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            display_name: this.currentUser.display_name,
-                            avatar_url: base64DataUrl
-                        })
-                    });
-                    const data = await res.json();
-                    if (data.user) {
-                        this.currentUser = data.user;
-                        this.myAvatar.src = data.user.avatar_url;
-                        this.profileAvatarImg.src = data.user.avatar_url;
-                    }
-                } catch (err) {
-                    alert("Cập nhật ảnh đại diện thất bại!");
+        const doUpdateAvatar = (avatarUrl) => {
+            fetch("/api/profile/update", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    avatar_url: avatarUrl
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (changeBtn) changeBtn.innerHTML = originalBtnHTML;
+                if (data.user) {
+                    this.currentUser = data.user;
+                    this.myAvatar.src = data.user.avatar_url;
+                    this.profileAvatarImg.src = data.user.avatar_url;
+                    alert("Cập nhật ảnh đại diện thành công!");
+                } else {
+                    alert("Cập nhật thất bại: " + (data.error || "Không thể cập nhật"));
                 }
-            };
-            img.src = e.target.result;
+            })
+            .catch(err => {
+                if (changeBtn) changeBtn.innerHTML = originalBtnHTML;
+                alert("Lỗi kết nối: " + err.message);
+            });
         };
-        reader.readAsDataURL(file);
+
+        const uploadDirectly = () => {
+            const formData = new FormData();
+            formData.append("file", file);
+            fetch("/api/upload", { method: "POST", body: formData })
+                .then(r => r.json())
+                .then(up => {
+                    if (up.url) {
+                        doUpdateAvatar(up.url);
+                    } else {
+                        if (changeBtn) changeBtn.innerHTML = originalBtnHTML;
+                        alert("Không thể tải ảnh: " + (up.error || "Lỗi tệp tin"));
+                    }
+                })
+                .catch(err => {
+                    if (changeBtn) changeBtn.innerHTML = originalBtnHTML;
+                    alert("Tải ảnh thất bại: " + err.message);
+                });
+        };
+
+        // Try client-side canvas crop & compress to base64 first
+        try {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        const canvas = document.createElement("canvas");
+                        const size = 180;
+                        canvas.width = size;
+                        canvas.height = size;
+                        const ctx = canvas.getContext("2d");
+
+                        const minSide = Math.min(img.width, img.height);
+                        const sx = (img.width - minSide) / 2;
+                        const sy = (img.height - minSide) / 2;
+                        ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+
+                        const base64DataUrl = canvas.toDataURL("image/jpeg", 0.85);
+                        doUpdateAvatar(base64DataUrl);
+                    } catch (canvasErr) {
+                        uploadDirectly();
+                    }
+                };
+                img.onerror = () => {
+                    uploadDirectly();
+                };
+                img.src = e.target.result;
+            };
+            reader.onerror = () => {
+                uploadDirectly();
+            };
+            reader.readAsDataURL(file);
+        } catch (e) {
+            uploadDirectly();
+        }
     }
 
     handleUserProfileUpdated(data) {
