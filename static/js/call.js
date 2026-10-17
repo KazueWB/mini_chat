@@ -4,6 +4,7 @@ class CallManager {
         this.activeCall = null;
         this.localStream = null;
         this.peerConnection = null;
+        this.pendingIceCandidates = [];
         this.timerInterval = null;
         this.secondsElapsed = 0;
         this.isMuted = false;
@@ -19,6 +20,7 @@ class CallManager {
         this.typeBadgeEl = null;
         this.localVideo = null;
         this.remoteVideo = null;
+        this.remoteAudio = null;
         this.localScreen = null;
         this.btnMic = null;
         this.btnCam = null;
@@ -48,6 +50,7 @@ class CallManager {
         this.typeBadgeEl = document.getElementById("call-type-badge");
         this.localVideo = document.getElementById("local-video-feed");
         this.remoteVideo = document.getElementById("remote-video-feed");
+        this.remoteAudio = document.getElementById("remote-audio-feed");
         this.localScreen = document.getElementById("local-screen");
 
         this.btnMic = document.getElementById("btn-call-mic");
@@ -65,7 +68,7 @@ class CallManager {
 
         if (this.btnMic) this.btnMic.addEventListener("click", () => this.toggleMic());
         if (this.btnCam) this.btnCam.addEventListener("click", () => this.toggleCam());
-        if (this.btnEnd) this.btnEnd.addEventListener("click", () => this.endCall());
+        if (this.btnEnd) this.btnEnd.addEventListener("click", () => this.endCall(true));
 
         if (this.btnAccept) this.btnAccept.addEventListener("click", () => this.acceptCall());
         if (this.btnDecline) this.btnDecline.addEventListener("click", () => this.declineCall());
@@ -89,6 +92,54 @@ class CallManager {
         return `${m}:${s}`;
     }
 
+    // Helper: Request local audio and optional video stream with echo cancellation & noise suppression
+    async getLocalMediaStream(type) {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            console.warn("[WebRTC] navigator.mediaDevices.getUserMedia not supported");
+            return null;
+        }
+
+        const audioConstraints = {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+        };
+
+        if (type === "video") {
+            try {
+                return await navigator.mediaDevices.getUserMedia({
+                    audio: audioConstraints,
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: "user"
+                    }
+                });
+            } catch (err) {
+                console.warn("[WebRTC] Video+audio acquisition failed, attempting audio only fallback:", err);
+                try {
+                    return await navigator.mediaDevices.getUserMedia({
+                        audio: audioConstraints,
+                        video: false
+                    });
+                } catch (audioErr) {
+                    console.error("[WebRTC] Audio acquisition failed completely:", audioErr);
+                    return null;
+                }
+            }
+        } else {
+            try {
+                return await navigator.mediaDevices.getUserMedia({
+                    audio: audioConstraints,
+                    video: false
+                });
+            } catch (err) {
+                console.error("[WebRTC] Audio acquisition failed:", err);
+                return null;
+            }
+        }
+    }
+
     // ---------------- START OUTGOING CALL (CALLER) ----------------
     async startCall(type = "video", targetUser = null, targetConv = null) {
         this.init();
@@ -109,11 +160,15 @@ class CallManager {
             status: "outgoing",
             startTime: null
         };
+        this.pendingIceCandidates = [];
 
         this.nameEl.textContent = callTargetName;
         this.avatarEl.src = callTargetAvatar;
         this.avatarEl.style.display = "block";
         this.remoteVideo.style.display = "none";
+        this.remoteVideo.srcObject = null;
+        if (this.remoteAudio) this.remoteAudio.srcObject = null;
+
         this.typeBadgeEl.innerHTML = type === "video" 
             ? '<i class="fa-solid fa-video"></i> Cuộc gọi Video' 
             : '<i class="fa-solid fa-phone"></i> Cuộc gọi thoại';
@@ -123,21 +178,13 @@ class CallManager {
 
         window.soundManager.startRinging();
 
-        // Get local audio & video (if video call)
-        try {
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: type === "video",
-                    audio: true
-                });
-                this.localStream = stream;
-                if (type === "video") {
-                    this.localScreen.style.display = "block";
-                    this.localVideo.srcObject = stream;
-                }
-            }
-        } catch (err) {
-            console.warn("[Call] Camera/mic preview not available:", err.message);
+        // Get local audio & video before ringing
+        this.localStream = await this.getLocalMediaStream(type);
+        if (this.localStream && type === "video" && this.localStream.getVideoTracks().length > 0) {
+            this.localScreen.style.display = "block";
+            this.localVideo.srcObject = this.localStream;
+        } else {
+            this.localScreen.style.display = "none";
         }
 
         // Send invite signal via socket to receiver's room
@@ -189,6 +236,7 @@ class CallManager {
                 status: "incoming",
                 startTime: null
             };
+            this.pendingIceCandidates = [];
 
             this.incomingName.textContent = data.caller.display_name;
             this.incomingAvatar.src = data.caller.avatar_url;
@@ -287,35 +335,32 @@ class CallManager {
         this.nameEl.textContent = call.targetUser.display_name;
         this.avatarEl.src = call.targetUser.avatar_url;
         this.avatarEl.style.display = "block";
+        this.remoteVideo.style.display = "none";
+        this.remoteVideo.srcObject = null;
+        if (this.remoteAudio) this.remoteAudio.srcObject = null;
+
         this.typeBadgeEl.innerHTML = call.type === "video" 
             ? '<i class="fa-solid fa-video"></i> Cuộc gọi Video' 
             : '<i class="fa-solid fa-phone"></i> Cuộc gọi thoại';
         this.overlay.style.display = "flex";
+        this.stateEl.textContent = "Đang kết nối...";
 
-        // Notify Caller that we accepted
+        // Step 1: CALLEE MUST ACQUIRE LOCAL MEDIA FIRST BEFORE NOTIFYING CALLER
+        this.localStream = await this.getLocalMediaStream(call.type);
+        if (this.localStream && call.type === "video" && this.localStream.getVideoTracks().length > 0) {
+            this.localScreen.style.display = "block";
+            this.localVideo.srcObject = this.localStream;
+        } else {
+            this.localScreen.style.display = "none";
+        }
+
+        // Step 2: Now notify Caller that we are ready to negotiate
         window.chatSocket.sendCallSignal({
             action: "call_accepted",
             call_id: call.callId,
             target_user_id: call.targetUser.id,
             conversation_id: call.targetConvId
         });
-
-        // Get local media
-        try {
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: call.type === "video",
-                    audio: true
-                });
-                this.localStream = stream;
-                if (call.type === "video") {
-                    this.localScreen.style.display = "block";
-                    this.localVideo.srcObject = stream;
-                }
-            }
-        } catch (e) {
-            console.warn("[Call] Callee media error:", e.message);
-        }
 
         this.connectCall();
     }
@@ -391,7 +436,7 @@ class CallManager {
         this.activeCall.status = "connected";
         this.activeCall.startTime = new Date();
 
-        this.stateEl.textContent = "Đang trò chuyện";
+        this.stateEl.textContent = "Đang kết nối âm thanh...";
         this.secondsElapsed = 0;
         this.timerEl.textContent = "00:00";
 
@@ -459,62 +504,124 @@ class CallManager {
         }
 
         if (this.localStream) {
-            this.localStream.getTracks().forEach(t => t.stop());
+            try {
+                this.localStream.getTracks().forEach(t => t.stop());
+            } catch (e) {}
             this.localStream = null;
         }
 
         if (this.peerConnection) {
-            this.peerConnection.close();
+            try {
+                this.peerConnection.onicecandidate = null;
+                this.peerConnection.ontrack = null;
+                this.peerConnection.onconnectionstatechange = null;
+                this.peerConnection.close();
+            } catch (e) {}
             this.peerConnection = null;
         }
 
+        this.pendingIceCandidates = [];
         this.activeCall = null;
+
+        if (this.remoteAudio) {
+            try {
+                this.remoteAudio.pause();
+                this.remoteAudio.srcObject = null;
+            } catch (e) {}
+        }
+
+        if (this.remoteVideo) {
+            try {
+                this.remoteVideo.pause();
+                this.remoteVideo.srcObject = null;
+                this.remoteVideo.style.display = "none";
+            } catch (e) {}
+        }
+
+        if (this.localVideo) {
+            try {
+                this.localVideo.srcObject = null;
+            } catch (e) {}
+        }
+
         if (this.overlay) this.overlay.style.display = "none";
         if (this.localScreen) this.localScreen.style.display = "none";
-        if (this.remoteVideo) this.remoteVideo.style.display = "none";
         if (this.avatarEl) this.avatarEl.style.display = "block";
         if (this.incomingModal) this.incomingModal.style.display = "none";
     }
 
     // ---------------- WEBRTC IMPLEMENTATION ----------------
     createPeerConnection() {
+        if (this.peerConnection) {
+            return this.peerConnection;
+        }
+
         const config = {
             iceServers: [
                 { urls: "stun:stun.l.google.com:19302" },
-                { urls: "stun:stun1.l.google.com:19302" }
-            ]
+                { urls: "stun:stun1.l.google.com:19302" },
+                { urls: "stun:stun2.l.google.com:19302" },
+                { urls: "stun:stun3.l.google.com:19302" },
+                { urls: "stun:stun4.l.google.com:19302" },
+                { urls: "stun:openrelay.metered.ca:80" }
+            ],
+            iceCandidatePoolSize: 10
         };
 
         const pc = new RTCPeerConnection(config);
 
+        // Add all local tracks into PeerConnection
         if (this.localStream) {
             this.localStream.getTracks().forEach(track => {
                 pc.addTrack(track, this.localStream);
             });
         }
 
+        // On local ICE candidate generated: send to peer
         pc.onicecandidate = (e) => {
-            if (e.candidate && this.activeCall) {
+            if (e.candidate && this.activeCall && this.activeCall.targetUser) {
                 window.chatSocket.sendCallSignal({
                     action: "webrtc_ice",
                     candidate: e.candidate,
-                    target_user_id: this.activeCall.targetUser.id
+                    target_user_id: this.activeCall.targetUser.id,
+                    call_id: this.activeCall.callId
                 });
             }
         };
 
+        // When remote audio/video tracks arrive
         pc.ontrack = (e) => {
-            if (e.streams && e.streams[0]) {
-                if (this.activeCall && this.activeCall.type === "video") {
-                    this.remoteVideo.srcObject = e.streams[0];
-                    this.remoteVideo.style.display = "block";
-                    this.avatarEl.style.display = "none";
-                } else {
-                    // Audio stream: play audio via audio element
-                    const audio = new Audio();
-                    audio.srcObject = e.streams[0];
-                    audio.play().catch(() => {});
+            console.log("[WebRTC] Received remote track:", e.track.kind);
+            const stream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
+
+            // Audio track -> connect to dedicated remote-audio-feed
+            if (e.track.kind === "audio") {
+                if (this.remoteAudio) {
+                    this.remoteAudio.srcObject = stream;
+                    this.remoteAudio.play().catch(err => console.warn("[WebRTC] remote audio play:", err));
                 }
+            }
+
+            // Video track -> connect to remote-video-feed & reveal
+            if (e.track.kind === "video") {
+                if (this.remoteVideo) {
+                    this.remoteVideo.srcObject = stream;
+                    this.remoteVideo.style.display = "block";
+                    if (this.avatarEl) this.avatarEl.style.display = "none";
+                    this.remoteVideo.play().catch(err => console.warn("[WebRTC] remote video play:", err));
+                }
+            }
+        };
+
+        // Monitor connection health
+        pc.onconnectionstatechange = () => {
+            console.log("[WebRTC] Connection state changed:", pc.connectionState);
+            if (pc.connectionState === "connected") {
+                if (this.stateEl) this.stateEl.textContent = "Đã kết nối";
+            } else if (pc.connectionState === "disconnected") {
+                if (this.stateEl) this.stateEl.textContent = "Mất kết nối tạm thời...";
+            } else if (pc.connectionState === "failed") {
+                if (this.stateEl) this.stateEl.textContent = "Kết nối thất bại";
             }
         };
 
@@ -522,36 +629,70 @@ class CallManager {
         return pc;
     }
 
+    async drainPendingIceCandidates() {
+        if (!this.peerConnection || !this.peerConnection.remoteDescription) return;
+        while (this.pendingIceCandidates.length > 0) {
+            const candidate = this.pendingIceCandidates.shift();
+            try {
+                await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (e) {
+                console.warn("[WebRTC] Error adding buffered ICE candidate:", e);
+            }
+        }
+    }
+
     async initWebRTCOffer() {
         try {
             const pc = this.createPeerConnection();
-            const offer = await pc.createOffer();
+            const isVideo = Boolean(this.activeCall && this.activeCall.type === "video");
+
+            const offer = await pc.createOffer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: isVideo
+            });
             await pc.setLocalDescription(offer);
 
             window.chatSocket.sendCallSignal({
                 action: "webrtc_offer",
                 sdp: offer,
+                call_id: this.activeCall.callId,
                 target_user_id: this.activeCall.targetUser.id
             });
         } catch (e) {
-            console.warn("[WebRTC] Offer error:", e.message);
+            console.error("[WebRTC] Error creating offer:", e);
         }
     }
 
     async handleWebRTCOffer(sdp) {
         try {
+            // Ensure callee has local stream before answering
+            if (!this.localStream && this.activeCall) {
+                this.localStream = await this.getLocalMediaStream(this.activeCall.type);
+                if (this.localStream && this.activeCall.type === "video" && this.localStream.getVideoTracks().length > 0) {
+                    this.localScreen.style.display = "block";
+                    this.localVideo.srcObject = this.localStream;
+                }
+            }
+
             const pc = this.createPeerConnection();
             await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-            const answer = await pc.createAnswer();
+            await this.drainPendingIceCandidates();
+
+            const isVideo = Boolean(this.activeCall && this.activeCall.type === "video");
+            const answer = await pc.createAnswer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: isVideo
+            });
             await pc.setLocalDescription(answer);
 
             window.chatSocket.sendCallSignal({
                 action: "webrtc_answer",
                 sdp: answer,
+                call_id: this.activeCall.callId,
                 target_user_id: this.activeCall.targetUser.id
             });
         } catch (e) {
-            console.warn("[WebRTC] Handle offer error:", e.message);
+            console.error("[WebRTC] Error handling offer:", e);
         }
     }
 
@@ -559,19 +700,23 @@ class CallManager {
         try {
             if (this.peerConnection) {
                 await this.peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+                await this.drainPendingIceCandidates();
             }
         } catch (e) {
-            console.warn("[WebRTC] Handle answer error:", e.message);
+            console.error("[WebRTC] Error handling answer:", e);
         }
     }
 
     async handleWebRTCIce(candidate) {
+        if (!candidate) return;
         try {
-            if (this.peerConnection && candidate) {
+            if (this.peerConnection && this.peerConnection.remoteDescription && this.peerConnection.remoteDescription.type) {
                 await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            } else {
+                this.pendingIceCandidates.push(candidate);
             }
         } catch (e) {
-            console.warn("[WebRTC] Add ice candidate error:", e.message);
+            console.warn("[WebRTC] Error handling ICE candidate:", e);
         }
     }
 
