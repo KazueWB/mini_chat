@@ -59,6 +59,12 @@ class ChatSocket {
             }
         });
 
+        this.socket.on("nickname_updated", (data) => {
+            if (window.app) {
+                window.app.handleNicknameUpdated(data);
+            }
+        });
+
         this.socket.on("reaction_updated", (data) => {
             if (window.app) {
                 window.app.handleReactionUpdated(data);

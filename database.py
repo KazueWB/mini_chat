@@ -178,6 +178,7 @@ def init_db():
             pinned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(conversation_id, message_id)
         );
+        ALTER TABLE participants ADD COLUMN IF NOT EXISTS nickname VARCHAR(100) DEFAULT '';
         """)
         conn.commit()
         conn.close()
@@ -226,6 +227,7 @@ def init_db():
             role TEXT DEFAULT 'member',
             joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             last_read_message_id INTEGER DEFAULT 0,
+            nickname TEXT DEFAULT '',
             PRIMARY KEY (conversation_id, user_id),
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -268,6 +270,10 @@ def init_db():
             FOREIGN KEY (pinned_by) REFERENCES users(id)
         );
         """)
+        try:
+            cursor.execute("ALTER TABLE participants ADD COLUMN nickname TEXT DEFAULT ''")
+        except Exception:
+            pass
         conn.commit()
         conn.close()
 

@@ -105,10 +105,23 @@ class ChatApp {
         this.btnCloseInfoSidebar = document.getElementById("btn-close-info-sidebar");
         this.infoAvatar = document.getElementById("info-avatar");
         this.infoName = document.getElementById("info-name");
+        this.infoOriginalName = document.getElementById("info-original-name");
         this.infoSub = document.getElementById("info-sub");
+        this.btnOpenNicknames = document.getElementById("btn-open-nicknames");
+        this.infoFriendshipSection = document.getElementById("info-friendship-section");
+        this.infoGroupSection = document.getElementById("info-group-section");
+        this.friendshipDaysVal = document.getElementById("friendship-days-val");
+        this.friendshipDetailText = document.getElementById("friendship-detail-text");
         this.infoMembersCount = document.getElementById("info-members-count");
         this.infoMembersList = document.getElementById("info-members-list");
+        this.tabMediaImages = document.getElementById("tab-media-images");
+        this.tabMediaFiles = document.getElementById("tab-media-files");
         this.infoMediaGallery = document.getElementById("info-media-gallery");
+        this.currentMediaTab = "images";
+
+        // Nicknames Modal
+        this.modalEditNicknames = document.getElementById("modal-edit-nicknames");
+        this.nicknamesMembersList = document.getElementById("nicknames-members-list");
 
         // Modals
         this.modalCreateGroup = document.getElementById("modal-create-group");
@@ -582,7 +595,7 @@ class ChatApp {
             if (conv.type === "direct") {
                 const other = data.participants.find(p => p.id !== this.currentUser.id);
                 if (other) {
-                    title = other.display_name;
+                    title = (other.nickname && other.nickname.trim()) ? other.nickname.trim() : other.display_name;
                     avatar = other.avatar_url;
                     this.updateChatHeaderStatus(other);
                 }
@@ -1067,6 +1080,10 @@ class ChatApp {
 
     handleConversationUpdated(data) {
         if (!data || !data.conversation_id) return;
+        if (data.nickname_change) {
+            this.loadConversations();
+            return;
+        }
         const conv = this.conversations.find(c => c.id == data.conversation_id);
         if (conv) {
             conv.last_message = data.last_message;
@@ -1192,26 +1209,226 @@ class ChatApp {
         const other = isDirect ? this.activeConv.participants.find(p => p.id !== this.currentUser.id) : null;
 
         this.infoAvatar.src = isDirect && other ? other.avatar_url : conv.avatar_url;
-        this.infoName.textContent = isDirect && other ? other.display_name : conv.name;
-        this.infoSub.textContent = isDirect && other ? (other.bio || other.status) : `${this.activeConv.participants.length} thành viên`;
 
-        this.infoMembersCount.textContent = this.activeConv.participants.length;
-        this.infoMembersList.innerHTML = this.activeConv.participants.map(p => `
-            <div class="member-item">
-                <img src="${p.avatar_url}" alt="${p.display_name}" class="avatar-circle-sm">
-                <span class="member-name">${this.escapeHTML(p.display_name)} ${p.id === this.currentUser.id ? '(Bạn)' : ''}</span>
-                ${p.role === 'admin' ? '<span class="member-role-badge">Trưởng nhóm</span>' : ''}
-            </div>
-        `).join("");
-
-        const images = this.activeConv.messages.filter(m => m.message_type === "image" && m.media_url);
-        if (images.length === 0) {
-            this.infoMediaGallery.innerHTML = `<span style="grid-column: span 3; font-size:12px; color:var(--text-muted); text-align:center; padding:10px 0;">Chưa có ảnh nào</span>`;
+        if (isDirect && other) {
+            const hasNickname = !!(other.nickname && other.nickname.trim());
+            this.infoName.textContent = hasNickname ? other.nickname.trim() : other.display_name;
+            if (hasNickname) {
+                this.infoOriginalName.textContent = `Tên gốc: ${other.original_display_name || other.display_name}`;
+                this.infoOriginalName.style.display = "block";
+            } else {
+                this.infoOriginalName.style.display = "none";
+            }
+            this.infoSub.textContent = other.bio || (other.status === 'online' ? 'Đang hoạt động' : 'Ngoại tuyến');
         } else {
-            this.infoMediaGallery.innerHTML = images.map(img => `
-                <img src="${img.media_url}" alt="Ảnh" class="media-gallery-thumb" onclick="window.app.openLightbox('${img.media_url}')">
-            `).join("");
+            this.infoName.textContent = conv.name;
+            this.infoOriginalName.style.display = "none";
+            this.infoSub.textContent = `${this.activeConv.participants.length} thành viên`;
         }
+
+        // Section Toggles: Direct (Friendship Duration) vs Group (Members List)
+        if (isDirect) {
+            if (this.infoFriendshipSection) this.infoFriendshipSection.style.display = "block";
+            if (this.infoGroupSection) this.infoGroupSection.style.display = "none";
+
+            const fInfo = this.activeConv.friendship_info;
+            if (fInfo && fInfo.status === "accepted" && fInfo.friended_at) {
+                const friendedDate = new Date(fInfo.friended_at);
+                const now = new Date();
+                const diffMs = now - friendedDate;
+                const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                const daysVal = Math.max(0, diffDays);
+
+                const d = friendedDate.getDate().toString().padStart(2, '0');
+                const m = (friendedDate.getMonth() + 1).toString().padStart(2, '0');
+                const y = friendedDate.getFullYear();
+                const dateStr = `${d}/${m}/${y}`;
+
+                if (daysVal === 0) {
+                    if (this.friendshipDaysVal) this.friendshipDaysVal.textContent = "1";
+                    if (this.friendshipDetailText) this.friendshipDetailText.innerHTML = `Hai bạn đã trở thành bạn bè từ hôm nay (${dateStr}) ✨`;
+                } else {
+                    if (this.friendshipDaysVal) this.friendshipDaysVal.textContent = daysVal;
+                    if (this.friendshipDetailText) this.friendshipDetailText.innerHTML = `Đã làm bạn được <strong>${daysVal} ngày</strong><br><span style="font-size:11px; color:var(--text-muted);">Từ ngày ${dateStr}</span> ✨`;
+                }
+            } else if (fInfo && fInfo.status === "pending") {
+                if (this.friendshipDaysVal) this.friendshipDaysVal.textContent = "⏳";
+                if (this.friendshipDetailText) this.friendshipDetailText.textContent = "Đang chờ chấp nhận lời mời kết bạn";
+            } else {
+                if (this.friendshipDaysVal) this.friendshipDaysVal.textContent = "💬";
+                if (this.friendshipDetailText) this.friendshipDetailText.textContent = "Chưa kết bạn hoặc kết nối gần đây";
+            }
+        } else {
+            if (this.infoFriendshipSection) this.infoFriendshipSection.style.display = "none";
+            if (this.infoGroupSection) this.infoGroupSection.style.display = "block";
+
+            this.infoMembersCount.textContent = this.activeConv.participants.length;
+            this.infoMembersList.innerHTML = this.activeConv.participants.map(p => {
+                const nick = p.nickname ? ` (${this.escapeHTML(p.nickname)})` : '';
+                return `
+                    <div class="member-item">
+                        <img src="${p.avatar_url}" alt="${p.display_name}" class="avatar-circle-sm">
+                        <span class="member-name">${this.escapeHTML(p.display_name)}${nick} ${p.id === this.currentUser.id ? '(Bạn)' : ''}</span>
+                        ${p.role === 'admin' ? '<span class="member-role-badge">Trưởng nhóm</span>' : ''}
+                    </div>
+                `;
+            }).join("");
+        }
+
+        this.renderMediaGallery();
+    }
+
+    switchMediaTab(tab) {
+        this.currentMediaTab = tab;
+        if (this.tabMediaImages) this.tabMediaImages.classList.toggle("active", tab === "images");
+        if (this.tabMediaFiles) this.tabMediaFiles.classList.toggle("active", tab === "files");
+        this.renderMediaGallery();
+    }
+
+    renderMediaGallery() {
+        if (!this.activeConv || !this.infoMediaGallery) return;
+        const messages = this.activeConv.messages || [];
+
+        if (this.currentMediaTab === "images") {
+            const images = messages.filter(m => m.message_type === "image" && m.media_url);
+            if (images.length === 0) {
+                this.infoMediaGallery.innerHTML = `<span style="grid-column: span 3; font-size:12px; color:var(--text-muted); text-align:center; padding:10px 0;">Chưa có ảnh nào</span>`;
+            } else {
+                this.infoMediaGallery.innerHTML = images.map(img => `
+                    <img src="${img.media_url}" alt="Ảnh" class="media-gallery-thumb" onclick="window.app.openLightbox('${img.media_url}')">
+                `).join("");
+            }
+        } else {
+            const files = messages.filter(m => m.message_type === "file" && m.media_url);
+            if (files.length === 0) {
+                this.infoMediaGallery.innerHTML = `<span style="grid-column: span 3; font-size:12px; color:var(--text-muted); text-align:center; padding:10px 0;">Chưa có tệp tin nào</span>`;
+            } else {
+                this.infoMediaGallery.innerHTML = `
+                    <div class="media-files-list" style="grid-column: span 3; width:100%;">
+                        ${files.map(f => `
+                            <a href="${f.media_url}" download="${this.escapeHTML(f.media_name || 'file')}" class="media-file-item" target="_blank">
+                                <i class="fa-solid fa-file-lines media-file-icon"></i>
+                                <div class="media-file-meta">
+                                    <div class="media-file-name">${this.escapeHTML(f.media_name || 'Tệp đính kèm')}</div>
+                                    <div class="media-file-size">${f.media_size || ''}</div>
+                                </div>
+                                <i class="fa-solid fa-download" style="font-size:12px; color:var(--text-muted);"></i>
+                            </a>
+                        `).join("")}
+                    </div>
+                `;
+            }
+        }
+    }
+
+    // ---------------- NICKNAME MANAGEMENT ----------------
+    openNicknamesModal() {
+        if (!this.activeConv) return;
+        this.renderNicknamesModalList();
+        this.openModal(this.modalEditNicknames);
+    }
+
+    renderNicknamesModalList() {
+        if (!this.activeConv || !this.nicknamesMembersList) return;
+        const participants = this.activeConv.participants || [];
+
+        this.nicknamesMembersList.innerHTML = participants.map(p => {
+            const isMe = p.id === this.currentUser.id;
+            const currentNick = (p.nickname || "").trim();
+            const origName = p.original_display_name || p.display_name;
+            return `
+                <div class="nickname-member-row">
+                    <div class="nickname-member-left">
+                        <img src="${p.avatar_url}" alt="${origName}" class="avatar-circle-sm">
+                        <div class="nickname-member-info">
+                            <div class="nickname-member-name">
+                                ${this.escapeHTML(origName)} ${isMe ? '<span style="color:var(--text-muted); font-size:12px;">(Bạn)</span>' : ''}
+                            </div>
+                            <div class="nickname-member-current">
+                                ${currentNick ? `Biệt danh: <strong>${this.escapeHTML(currentNick)}</strong>` : '<span style="color:var(--text-muted); font-style:italic;">Chưa có biệt danh</span>'}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="nickname-edit-box">
+                        <input type="text" class="nickname-input" id="nickname-input-${p.id}" value="${this.escapeHTML(currentNick)}" placeholder="Đặt biệt danh...">
+                        <button class="nickname-btn-save" onclick="window.app.saveNickname(${p.id})">Lưu</button>
+                        ${currentNick ? `<button class="nickname-btn-clear" onclick="window.app.clearNickname(${p.id})" title="Gỡ biệt danh"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join("");
+    }
+
+    async saveNickname(targetUserId) {
+        if (!this.activeConv) return;
+        const convId = this.activeConv.conversation.id;
+        const input = document.getElementById(`nickname-input-${targetUserId}`);
+        const nickname = input ? input.value.trim() : "";
+
+        try {
+            const res = await fetch(`/api/conversations/${convId}/nicknames`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ target_user_id: targetUserId, nickname })
+            });
+            const data = await res.json();
+            if (data.error) {
+                alert("Lỗi: " + data.error);
+                return;
+            }
+
+            // Update participant in memory
+            const p = this.activeConv.participants.find(part => part.id === targetUserId);
+            if (p) {
+                p.nickname = data.nickname;
+                p.effective_name = data.nickname || p.original_display_name || p.display_name;
+            }
+
+            // Update chat header if target is other user in direct chat
+            if (this.activeConv.conversation.type === "direct") {
+                const other = this.activeConv.participants.find(part => part.id !== this.currentUser.id);
+                if (other && other.id === targetUserId) {
+                    this.chatHeaderName.textContent = data.nickname || other.original_display_name || other.display_name;
+                }
+            }
+
+            this.renderNicknamesModalList();
+            this.populateInfoSidebar();
+            await this.loadConversations();
+
+        } catch (err) {
+            console.error("Failed to save nickname:", err);
+            alert("Không thể lưu biệt danh. Vui lòng thử lại!");
+        }
+    }
+
+    clearNickname(targetUserId) {
+        const input = document.getElementById(`nickname-input-${targetUserId}`);
+        if (input) input.value = "";
+        this.saveNickname(targetUserId);
+    }
+
+    handleNicknameUpdated(data) {
+        if (!data || !data.conversation_id) return;
+        if (this.activeConv && this.activeConv.conversation.id === data.conversation_id) {
+            const p = this.activeConv.participants.find(part => part.id === data.target_user_id);
+            if (p) {
+                p.nickname = data.nickname;
+                p.effective_name = data.nickname || p.original_display_name || p.display_name;
+            }
+
+            if (this.activeConv.conversation.type === "direct") {
+                const other = this.activeConv.participants.find(part => part.id !== this.currentUser.id);
+                if (other && other.id === data.target_user_id) {
+                    this.chatHeaderName.textContent = data.nickname || other.original_display_name || other.display_name;
+                }
+            }
+
+            this.renderNicknamesModalList();
+            this.populateInfoSidebar();
+        }
+
+        this.loadConversations();
     }
 
     async startDirectChatWith(userId) {
@@ -1779,6 +1996,16 @@ class ChatApp {
         this.btnCloseInfoSidebar.addEventListener("click", () => {
             this.chatInfoSidebar.classList.remove("open");
         });
+
+        if (this.btnOpenNicknames) {
+            this.btnOpenNicknames.addEventListener("click", () => this.openNicknamesModal());
+        }
+        if (this.tabMediaImages) {
+            this.tabMediaImages.addEventListener("click", () => this.switchMediaTab("images"));
+        }
+        if (this.tabMediaFiles) {
+            this.tabMediaFiles.addEventListener("click", () => this.switchMediaTab("files"));
+        }
 
         document.getElementById("btn-back-to-list").addEventListener("click", () => {
             this.chatMain.classList.remove("mobile-active");

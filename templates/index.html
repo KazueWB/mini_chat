@@ -354,10 +354,32 @@
                 <div class="info-profile">
                     <img id="info-avatar" src="" alt="Avatar" class="avatar-circle-lg">
                     <h4 id="info-name">--</h4>
+                    <p id="info-original-name" class="info-original-name" style="display:none;"></p>
                     <p id="info-sub" class="info-sub-text">--</p>
+                    <div class="info-actions-bar" id="info-actions-bar">
+                        <button class="info-action-btn" id="btn-open-nicknames" title="Đặt hoặc đổi biệt danh">
+                            <i class="fa-solid fa-user-pen"></i> Đặt biệt danh
+                        </button>
+                    </div>
                 </div>
 
-                <div class="info-section">
+                <!-- 1-1 Direct Chat: Đã làm bạn với nhau bao nhiêu ngày -->
+                <div class="info-section" id="info-friendship-section">
+                    <h5 class="section-title"><i class="fa-solid fa-heart" style="color:#f43f5e; margin-right:6px;"></i>Kỷ niệm tình bạn</h5>
+                    <div class="friendship-badge-card" id="friendship-badge-card">
+                        <div class="friendship-days-circle">
+                            <i class="fa-solid fa-handshake-angle friendship-icon"></i>
+                            <div class="friendship-days-val" id="friendship-days-val">--</div>
+                            <div class="friendship-days-sub">ngày bên nhau</div>
+                        </div>
+                        <div class="friendship-detail-text" id="friendship-detail-text">
+                            Đang tải thông tin...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Group Chat: Thành viên tham gia -->
+                <div class="info-section" id="info-group-section" style="display:none;">
                     <h5 class="section-title">Thành viên tham gia (<span id="info-members-count">0</span>)</h5>
                     <div class="members-list" id="info-members-list">
                         <!-- Dynamic member list -->
@@ -367,8 +389,8 @@
                 <div class="info-section">
                     <h5 class="section-title">Hình ảnh & Tệp đã gửi</h5>
                     <div class="media-tabs">
-                        <button class="media-tab-btn active" data-tab="images">Ảnh</button>
-                        <button class="media-tab-btn" data-tab="files">Tệp tin</button>
+                        <button class="media-tab-btn active" id="tab-media-images" data-tab="images">Ảnh</button>
+                        <button class="media-tab-btn" id="tab-media-files" data-tab="files">Tệp tin</button>
                     </div>
                     <div class="media-gallery" id="info-media-gallery">
                         <!-- Media items -->
@@ -615,6 +637,25 @@
                     </div>
                     <span>Trả lời</span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- EDIT NICKNAMES MODAL (ĐẶT BIỆT DANH) -->
+    <div class="modal-overlay" id="modal-edit-nicknames" style="display:none;">
+        <div class="modal-card modal-nicknames-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-user-pen"></i> Đặt biệt danh</h3>
+                <button class="modal-close-btn" data-modal="modal-edit-nicknames">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-subtitle">Biệt danh chỉ hiển thị trong cuộc trò chuyện này, tương tự Zalo & Messenger.</p>
+                <div class="nicknames-list" id="nicknames-members-list">
+                    <!-- Populated dynamically with each participant -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-modal="modal-edit-nicknames">Đóng</button>
             </div>
         </div>
     </div>

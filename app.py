@@ -616,7 +616,7 @@ def get_conversations():
 
         if conv["type"] == "direct":
             other = conn.execute("""
-                SELECT u.id, u.display_name, u.avatar_url, u.status, u.bio, u.last_seen
+                SELECT u.id, u.display_name, u.avatar_url, u.status, u.bio, u.last_seen, p2.nickname
                 FROM participants p2
                 JOIN users u ON p2.user_id = u.id
                 WHERE p2.conversation_id = ? AND p2.user_id != ?
@@ -625,7 +625,10 @@ def get_conversations():
                 conv["other_user"] = dict(other)
                 if conv["other_user"].get("last_seen"):
                     conv["other_user"]["last_seen"] = format_datetime_utc(conv["other_user"]["last_seen"])
-                conv["name"] = other["display_name"]
+                nick = (other["nickname"] or "").strip()
+                conv["other_user"]["nickname"] = nick
+                conv["other_user"]["original_display_name"] = other["display_name"]
+                conv["name"] = nick if nick else other["display_name"]
                 conv["avatar_url"] = other["avatar_url"]
                 conv["status"] = other["status"]
                 conv["last_seen"] = conv["other_user"].get("last_seen", "")
@@ -715,21 +718,32 @@ def get_messages(conv_id):
     SELECT 
         m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
         m.media_url, m.media_name, m.media_size, m.reply_to_id, m.is_recalled, m.created_at,
-        u.display_name as sender_name, u.avatar_url as sender_avatar,
+        p_sender.nickname as sender_nickname,
+        u.display_name as sender_original_name,
+        CASE 
+            WHEN p_sender.nickname IS NOT NULL AND TRIM(p_sender.nickname) != '' THEN p_sender.nickname 
+            ELSE u.display_name 
+        END as sender_name,
+        u.avatar_url as sender_avatar,
         (
             SELECT json_object(
                 'id', rm.id,
                 'content', rm.content,
-                'sender_name', ru.display_name,
+                'sender_name', CASE 
+                    WHEN rp.nickname IS NOT NULL AND TRIM(rp.nickname) != '' THEN rp.nickname 
+                    ELSE ru.display_name 
+                END,
                 'message_type', rm.message_type,
                 'is_recalled', rm.is_recalled
             )
             FROM messages rm
             JOIN users ru ON rm.sender_id = ru.id
+            LEFT JOIN participants rp ON rm.conversation_id = rp.conversation_id AND rm.sender_id = rp.user_id
             WHERE rm.id = m.reply_to_id
         ) as reply_json
     FROM messages m
     JOIN users u ON m.sender_id = u.id
+    LEFT JOIN participants p_sender ON m.conversation_id = p_sender.conversation_id AND m.sender_id = p_sender.user_id
     WHERE m.conversation_id = ?
     ORDER BY m.id ASC
     """
@@ -765,7 +779,7 @@ def get_messages(conv_id):
 
     conv_info = conn.execute("SELECT id, type, name, avatar_url FROM conversations WHERE id = ?", (conv_id,)).fetchone()
     participants = conn.execute("""
-        SELECT u.id, u.display_name, u.avatar_url, u.status, u.bio, u.last_seen, p.role
+        SELECT u.id, u.display_name, u.avatar_url, u.status, u.bio, u.last_seen, p.role, p.nickname
         FROM participants p
         JOIN users u ON p.user_id = u.id
         WHERE p.conversation_id = ?
@@ -776,7 +790,37 @@ def get_messages(conv_id):
         pd = dict(p)
         if pd.get("last_seen"):
             pd["last_seen"] = format_datetime_utc(pd["last_seen"])
+        nick = (pd.get("nickname") or "").strip()
+        pd["nickname"] = nick
+        pd["original_display_name"] = pd["display_name"]
+        pd["effective_name"] = nick if nick else pd["display_name"]
         participants_list.append(pd)
+
+    friendship_info = None
+    if conv_info["type"] == "direct":
+        other_part = [p for p in participants_list if p["id"] != user_id]
+        if other_part:
+            other_id = other_part[0]["id"]
+            f_row = conn.execute("""
+                SELECT status, created_at, updated_at FROM friendships
+                WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+            """, (user_id, other_id, other_id, user_id)).fetchone()
+            if f_row and f_row["status"] == "accepted":
+                friended_time = f_row["updated_at"] or f_row["created_at"]
+                friendship_info = {
+                    "status": "accepted",
+                    "friended_at": format_datetime_utc(friended_time)
+                }
+            elif f_row:
+                friendship_info = {
+                    "status": f_row["status"],
+                    "friended_at": None
+                }
+            else:
+                friendship_info = {
+                    "status": "none",
+                    "friended_at": None
+                }
 
     messages = []
     for r in rows:
@@ -793,7 +837,8 @@ def get_messages(conv_id):
         "conversation": dict(conv_info),
         "participants": participants_list,
         "pinned": pinned_list,
-        "messages": messages
+        "messages": messages,
+        "friendship_info": friendship_info
     })
 
 @app.route("/api/conversations/<int:conv_id>/messages", methods=["POST"])
@@ -828,9 +873,16 @@ def send_message_rest(conv_id):
     msg = conn.execute("""
         SELECT m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
                m.media_url, m.media_name, m.media_size, m.reply_to_id, m.is_recalled, m.created_at,
-               u.display_name as sender_name, u.avatar_url as sender_avatar
+               CASE 
+                   WHEN p.nickname IS NOT NULL AND TRIM(p.nickname) != '' THEN p.nickname 
+                   ELSE u.display_name 
+               END as sender_name,
+               p.nickname as sender_nickname,
+               u.display_name as sender_original_name,
+               u.avatar_url as sender_avatar
         FROM messages m
         JOIN users u ON m.sender_id = u.id
+        LEFT JOIN participants p ON m.conversation_id = p.conversation_id AND m.sender_id = p.user_id
         WHERE m.id = ?
     """, (msg_id,)).fetchone()
     
@@ -842,9 +894,15 @@ def send_message_rest(conv_id):
     
     if reply_to_id:
         rm = conn.execute("""
-            SELECT rm.id, rm.content, ru.display_name as sender_name, rm.message_type, rm.is_recalled
+            SELECT rm.id, rm.content, 
+                   CASE 
+                       WHEN rp.nickname IS NOT NULL AND TRIM(rp.nickname) != '' THEN rp.nickname 
+                       ELSE ru.display_name 
+                   END as sender_name,
+                   rm.message_type, rm.is_recalled
             FROM messages rm
             JOIN users ru ON rm.sender_id = ru.id
+            LEFT JOIN participants rp ON rm.conversation_id = rp.conversation_id AND rm.sender_id = rp.user_id
             WHERE rm.id = ?
         """, (reply_to_id,)).fetchone()
         msg_dict["reply_to"] = dict(rm) if rm else None
@@ -865,6 +923,116 @@ def send_message_rest(conv_id):
             }, room=f"user_{p['user_id']}")
 
     return jsonify(msg_dict)
+
+# ----------------- NICKNAME APIS -----------------
+@app.route("/api/conversations/<int:conv_id>/nicknames", methods=["POST"])
+def update_nickname(conv_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    target_user_id = data.get("target_user_id")
+    new_nickname = (data.get("nickname") or "").strip()
+
+    if not target_user_id:
+        return jsonify({"error": "Target user ID is required"}), 400
+
+    conn = database.get_db()
+
+    # Verify actor is participant
+    actor_part = conn.execute("""
+        SELECT p.nickname, u.display_name 
+        FROM participants p 
+        JOIN users u ON p.user_id = u.id 
+        WHERE p.conversation_id = ? AND p.user_id = ?
+    """, (conv_id, user_id)).fetchone()
+    if not actor_part:
+        conn.close()
+        return jsonify({"error": "Not a participant"}), 403
+
+    # Verify target is participant
+    target_part = conn.execute("""
+        SELECT p.nickname, u.display_name 
+        FROM participants p 
+        JOIN users u ON p.user_id = u.id 
+        WHERE p.conversation_id = ? AND p.user_id = ?
+    """, (conv_id, target_user_id)).fetchone()
+    if not target_part:
+        conn.close()
+        return jsonify({"error": "Target user not in conversation"}), 404
+
+    conn.execute("UPDATE participants SET nickname = ? WHERE conversation_id = ? AND user_id = ?", (new_nickname, conv_id, target_user_id))
+
+    actor_nickname = (actor_part["nickname"] or "").strip()
+    actor_name = actor_nickname if actor_nickname else actor_part["display_name"]
+    target_orig_name = target_part["display_name"]
+
+    if new_nickname:
+        if user_id == target_user_id:
+            sys_content = f'{actor_name} đã tự đặt biệt danh cho mình là "{new_nickname}".'
+        else:
+            sys_content = f'{actor_name} đã đặt biệt danh cho {target_orig_name} là "{new_nickname}".'
+    else:
+        if user_id == target_user_id:
+            sys_content = f'{actor_name} đã gỡ biệt danh của chính mình.'
+        else:
+            sys_content = f'{actor_name} đã gỡ biệt danh cho {target_orig_name}.'
+
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO messages (conversation_id, sender_id, content, message_type)
+        VALUES (?, ?, ?, 'system')
+    """, (conv_id, user_id, sys_content))
+    msg_id = cursor.lastrowid
+    conn.execute("UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (conv_id,))
+    conn.commit()
+
+    sys_msg = conn.execute("""
+        SELECT m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
+               m.media_url, m.media_name, m.media_size, m.reply_to_id, m.is_recalled, m.created_at,
+               u.display_name as sender_name, u.avatar_url as sender_avatar
+        FROM messages m
+        JOIN users u ON m.sender_id = u.id
+        WHERE m.id = ?
+    """, (msg_id,)).fetchone()
+    sys_msg_dict = dict(sys_msg)
+    if sys_msg_dict.get("created_at"):
+        sys_msg_dict["created_at"] = format_datetime_utc(sys_msg_dict["created_at"])
+    sys_msg_dict["reactions"] = []
+    sys_msg_dict["reply_to"] = None
+
+    participants_rows = conn.execute("SELECT user_id FROM participants WHERE conversation_id = ?", (conv_id,)).fetchall()
+    conn.close()
+
+    # Emit new message to conversation room
+    socketio.emit("new_message", sys_msg_dict, room=f"conv_{conv_id}")
+
+    # Emit nickname_updated event to conversation room
+    socketio.emit("nickname_updated", {
+        "conversation_id": conv_id,
+        "target_user_id": target_user_id,
+        "nickname": new_nickname,
+        "actor_id": user_id
+    }, room=f"conv_{conv_id}")
+
+    # Emit conversation_updated to each participant user room
+    for p in participants_rows:
+        socketio.emit("conversation_updated", {
+            "conversation_id": conv_id,
+            "last_message": sys_msg_dict,
+            "nickname_change": {
+                "target_user_id": target_user_id,
+                "nickname": new_nickname
+            }
+        }, room=f"user_{p['user_id']}")
+
+    return jsonify({
+        "success": True,
+        "conversation_id": conv_id,
+        "target_user_id": target_user_id,
+        "nickname": new_nickname
+    })
 
 @app.route("/api/upload", methods=["POST"])
 def upload_file():
