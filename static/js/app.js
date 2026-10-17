@@ -180,6 +180,7 @@ class ChatApp {
             const res = await fetch("/api/me");
             const data = await res.json();
             if (data && data.authenticated && data.id) {
+                data.status = 'online';
                 this.currentUser = data;
                 this.authOverlay.style.display = "none";
                 this.onAuthSuccess();
@@ -212,6 +213,7 @@ class ChatApp {
             if (data.error) {
                 this.showLoginError(data.error);
             } else if (data.success && data.user) {
+                data.user.status = 'online';
                 this.currentUser = data.user;
                 this.authOverlay.style.display = "none";
                 this.onAuthSuccess();
@@ -248,6 +250,7 @@ class ChatApp {
             if (data.error) {
                 this.showRegError(data.error);
             } else if (data.success && data.user) {
+                data.user.status = 'online';
                 this.currentUser = data.user;
                 this.authOverlay.style.display = "none";
                 this.onAuthSuccess();
@@ -292,8 +295,11 @@ class ChatApp {
     }
 
     async onAuthSuccess() {
+        if (this.currentUser) {
+            this.currentUser.status = 'online';
+        }
         this.myAvatar.src = this.currentUser.avatar_url;
-        this.myStatusDot.className = `status-indicator ${this.currentUser.status || 'online'}`;
+        this.myStatusDot.className = "status-indicator online";
         
         window.chatSocket.connect(this.currentUser.id);
 
@@ -1316,6 +1322,14 @@ class ChatApp {
     handleUserStatusChanged(data) {
         console.log("[Presence] User status changed:", data);
         
+        // 0. Update my own status indicator if this event is for current user
+        if (this.currentUser && data.user_id === this.currentUser.id) {
+            this.currentUser.status = 'online';
+            if (this.myStatusDot) {
+                this.myStatusDot.className = "status-indicator online";
+            }
+        }
+
         // 1. Update in friends list
         const friend = this.friends.find(u => u.id === data.user_id);
         if (friend) {
@@ -1694,6 +1708,9 @@ class ChatApp {
             }
 
             this.activeProfileUser = data;
+            if (data.is_me || (this.currentUser && data.id === this.currentUser.id)) {
+                data.status = 'online';
+            }
 
             // Populate view mode
             this.profileAvatarImg.src = data.avatar_url;

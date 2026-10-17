@@ -119,10 +119,14 @@ def get_me():
         return jsonify({"authenticated": False}), 200
         
     conn = database.get_db()
+    # Khi user truy cập web thì cập nhật trạng thái online và thời gian hoạt động ngay lập tức
+    conn.execute("UPDATE users SET status = 'online', last_seen = CURRENT_TIMESTAMP WHERE id = ?", (user_id,))
+    conn.commit()
     user = conn.execute("SELECT id, username, phone, display_name, avatar_url, status, bio, dob, gender, last_seen, created_at FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
     if user:
         res = dict(user)
+        res["status"] = "online"
         if res.get("created_at"):
             res["created_at"] = format_datetime_utc(res["created_at"])
         if res.get("last_seen"):
@@ -192,8 +196,14 @@ def auth_login():
         return jsonify({"error": "Tài khoản hoặc mật khẩu không chính xác!"}), 400
 
     session["user_id"] = user["id"]
+    conn = database.get_db()
+    conn.execute("UPDATE users SET status = 'online', last_seen = CURRENT_TIMESTAMP WHERE id = ?", (user["id"],))
+    conn.commit()
+    conn.close()
+
     user_dict = dict(user)
     del user_dict["password"]
+    user_dict["status"] = "online"
     if user_dict.get("created_at"):
         user_dict["created_at"] = format_datetime_utc(user_dict["created_at"])
     if user_dict.get("last_seen"):
@@ -280,6 +290,7 @@ def get_user_profile(target_user_id):
 
     if current_uid == target_user_id:
         u_dict["is_me"] = True
+        u_dict["status"] = "online"
         u_dict["friendship_status"] = "self"
     elif current_uid:
         u_dict["is_me"] = False
@@ -1248,7 +1259,7 @@ def on_heartbeat(data):
         try:
             uid = int(user_id)
             conn = database.get_db()
-            conn.execute("UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = ?", (uid,))
+            conn.execute("UPDATE users SET status = 'online', last_seen = CURRENT_TIMESTAMP WHERE id = ?", (uid,))
             conn.commit()
             conn.close()
         except Exception as e:
