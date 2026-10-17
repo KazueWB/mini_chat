@@ -1,4 +1,4 @@
-// Zalo & Messenger Web - Main Frontend Application with Authentication & Friends
+// Chat Together Web - Main Frontend Application with Authentication & Friends
 class ChatApp {
     constructor() {
         this.currentUser = null;

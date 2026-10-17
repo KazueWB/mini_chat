@@ -24,7 +24,7 @@ class CustomJSON:
         return json.loads(*args, **kwargs)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
-app.config["SECRET_KEY"] = "super-secret-zalo-messenger-key-2026"
+app.config["SECRET_KEY"] = "super-secret-chat-together-key-2026"
 app.config["UPLOAD_FOLDER"] = os.path.join(os.path.dirname(__file__), "static", "uploads")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB max upload
 
@@ -989,5 +989,5 @@ if __name__ == "__main__":
     database.init_db()
     database.seed_db()
     port = int(os.environ.get("PORT", 5000))
-    print(f"Starting Zalo/Messenger Realtime Server on port {port} ...")
+    print(f"Starting Chat Together Web Realtime Server on port {port} ...")
     socketio.run(app, host="0.0.0.0", port=port, debug=False, allow_unsafe_werkzeug=True)

@@ -1,6 +1,6 @@
-# 💬 Zalo & Messenger Web - Hệ Thống Nhắn Tin Thời Gian Thực
+# 💬 Chat Together Web - Hệ Thống Nhắn Tin Thời Gian Thực
 
-Một ứng dụng web nhắn tin đa nền tảng hiện đại, trực quan, lấy cảm hứng từ giao diện và tính năng cao cấp của **Zalo Web** và **Facebook Messenger**.
+Một ứng dụng web nhắn tin đa nền tảng hiện đại, trực quan mang tên **Chat Together Web**.
 
 ---
 
@@ -13,7 +13,7 @@ Một ứng dụng web nhắn tin đa nền tảng hiện đại, trực quan, l
 - **Phân tách ngày giờ**: Tự động nhóm tin nhắn theo ngày ("Hôm nay", ngày tháng năm).
 
 ### 2. 🎨 Giao Diện & Trải Nghiệm Người Dùng (UI/UX) Đỉnh Cao
-- **Phong cách kết hợp Zalo & Messenger**: Sidebar icon hiện đại, danh sách hội thoại bo góc mềm mại, bong bóng chat gradient đẹp mắt.
+- **Phong cách hiện đại**: Sidebar icon trực quan, danh sách hội thoại bo góc mềm mại, bong bóng chat gradient đẹp mắt.
 - **Chế độ Sáng / Tối (Dark / Light Mode)**: Chuyển đổi mượt mà với 1 nút bấm (lưu trạng thái vào LocalStorage).
 - **Âm thanh thông báo (Web Audio API)**: Tích hợp âm thanh khi gửi tin, nhận tin, đổ chuông cuộc gọi và kết thúc cuộc gọi mà không phụ thuộc file âm thanh ngoài.
 - **Tìm kiếm hội thoại & bạn bè**: Lọc tin nhắn nhanh theo tên hoặc nội dung.
@@ -22,7 +22,7 @@ Một ứng dụng web nhắn tin đa nền tảng hiện đại, trực quan, l
 ### 3. 💌 Tương Tác & Tính Năng Tin Nhắn Chuyên Sâu
 - **Thả cảm xúc (Reactions)**: Thả tim (❤️), thích (👍), cười (😂), ngạc nhiên (😮) trực tiếp trên từng tin nhắn với số đếm badge.
 - **Trả lời tin nhắn (Reply / Quote)**: Trích dẫn tin nhắn gốc và tự động cuộn đến tin được trích dẫn khi click.
-- **Thu hồi tin nhắn (Recall)**: Thu hồi tin nhắn đã gửi ("Tin nhắn đã được thu hồi") chuẩn Zalo.
+- **Thu hồi tin nhắn (Recall)**: Thu hồi tin nhắn đã gửi ("Tin nhắn đã được thu hồi").
 - **Ghim tin nhắn (Pin Messages)**: Ghim tin quan trọng lên đầu cuộc trò chuyện.
 - **Bộ biểu cảm phong phú (Emoji Picker)**: Phân loại theo cảm xúc, cử chỉ, trái tim, biểu tượng vui vẻ.
 

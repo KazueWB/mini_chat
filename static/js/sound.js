@@ -1,4 +1,4 @@
-// Web Audio API Sound Synthesizer for Zalo/Messenger
+// Web Audio API Sound Synthesizer for Chat Together Web
 class SoundManager {
     constructor() {
         this.enabled = true;
@@ -45,7 +45,7 @@ class SoundManager {
         this.init();
         if (!this.ctx) return;
 
-        // Zalo / Messenger cheerful two-tone chime
+        // Chat Together Web cheerful two-tone chime
         const now = this.ctx.currentTime;
         const playTone = (freq, start, duration) => {
             const osc = this.ctx.createOscillator();

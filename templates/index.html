@@ -1,13 +1,16 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Zalo Messenger Web - Nền Tảng Nhắn Tin Thời Gian Thực</title>
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Chat Together Web - Nền Tảng Nhắn Tin Thời Gian Thực</title>
     <!-- Google Fonts: Be Vietnam Pro -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
     <!-- FontAwesome 6 for crisp icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <!-- Custom CSS -->
@@ -15,6 +18,7 @@
     <!-- Socket.IO -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
+
 <body class="theme-light">
     <!-- AUTH OVERLAY (HIỂN THỊ KHI CHƯA ĐĂNG NHẬP) -->
     <div class="auth-overlay" id="auth-overlay" style="display:none;">
@@ -23,7 +27,7 @@
                 <div class="auth-logo-circle">
                     <i class="fa-solid fa-comments"></i>
                 </div>
-                <h2>Zalo Messenger Web</h2>
+                <h2>Chat Together Web</h2>
                 <p>Nền tảng nhắn tin thời gian thực đa năng</p>
             </div>
 
@@ -37,11 +41,13 @@
             <form id="login-form" class="auth-form" onsubmit="return false;">
                 <div class="form-group">
                     <label><i class="fa-solid fa-user"></i> Tên đăng nhập hoặc Số điện thoại:</label>
-                    <input type="text" id="login-id" class="input-control" placeholder="Ví dụ: nguyenvana hoặc 0901234567" required autocomplete="username">
+                    <input type="text" id="login-id" class="input-control"
+                        placeholder="Ví dụ: nguyenvana hoặc 0901234567" required autocomplete="username">
                 </div>
                 <div class="form-group">
                     <label><i class="fa-solid fa-lock"></i> Mật khẩu:</label>
-                    <input type="password" id="login-password" class="input-control" placeholder="Nhập mật khẩu của bạn" required autocomplete="current-password">
+                    <input type="password" id="login-password" class="input-control" placeholder="Nhập mật khẩu của bạn"
+                        required autocomplete="current-password">
                 </div>
                 <div id="login-error-msg" class="auth-error" style="display:none;"></div>
                 <button type="submit" class="btn btn-primary btn-block" id="btn-submit-login">
@@ -51,9 +57,12 @@
                 <div class="auth-quick-demo">
                     <span class="auth-divider">hoặc thử nhanh tài khoản có sẵn:</span>
                     <div class="demo-user-chips">
-                        <button type="button" class="demo-chip" onclick="window.app.fillLogin('0901234567', '123456')">👨 An (0901234567)</button>
-                        <button type="button" class="demo-chip" onclick="window.app.fillLogin('0912345678', '123456')">👩 Mai (0912345678)</button>
-                        <button type="button" class="demo-chip" onclick="window.app.fillLogin('0987654321', '123456')">👨 Bảo (0987654321)</button>
+                        <button type="button" class="demo-chip"
+                            onclick="window.app.fillLogin('0901234567', '123456')">👨 An (0901234567)</button>
+                        <button type="button" class="demo-chip"
+                            onclick="window.app.fillLogin('0912345678', '123456')">👩 Mai (0912345678)</button>
+                        <button type="button" class="demo-chip"
+                            onclick="window.app.fillLogin('0987654321', '123456')">👨 Bảo (0987654321)</button>
                     </div>
                 </div>
             </form>
@@ -62,19 +71,23 @@
             <form id="register-form" class="auth-form" style="display:none;" onsubmit="return false;">
                 <div class="form-group">
                     <label><i class="fa-solid fa-signature"></i> Họ và tên hiển thị:</label>
-                    <input type="text" id="reg-display-name" class="input-control" placeholder="Ví dụ: Nguyễn Hoàng Nam" required>
+                    <input type="text" id="reg-display-name" class="input-control" placeholder="Ví dụ: Nguyễn Hoàng Nam"
+                        required>
                 </div>
                 <div class="form-group">
                     <label><i class="fa-solid fa-at"></i> Tên đăng nhập (username):</label>
-                    <input type="text" id="reg-username" class="input-control" placeholder="Viết liền không dấu, ví dụ: hoangnam" required autocomplete="username">
+                    <input type="text" id="reg-username" class="input-control"
+                        placeholder="Viết liền không dấu, ví dụ: hoangnam" required autocomplete="username">
                 </div>
                 <div class="form-group">
                     <label><i class="fa-solid fa-phone"></i> Số điện thoại:</label>
-                    <input type="tel" id="reg-phone" class="input-control" placeholder="Ví dụ: 0988776655 (dùng để bạn bè tìm thấy bạn)" required>
+                    <input type="tel" id="reg-phone" class="input-control"
+                        placeholder="Ví dụ: 0988776655 (dùng để bạn bè tìm thấy bạn)" required>
                 </div>
                 <div class="form-group">
                     <label><i class="fa-solid fa-lock"></i> Mật khẩu:</label>
-                    <input type="password" id="reg-password" class="input-control" placeholder="Tối thiểu 6 ký tự" required autocomplete="new-password">
+                    <input type="password" id="reg-password" class="input-control" placeholder="Tối thiểu 6 ký tự"
+                        required autocomplete="new-password">
                 </div>
                 <div id="reg-error-msg" class="auth-error" style="display:none;"></div>
                 <button type="submit" class="btn btn-primary btn-block" id="btn-submit-register">
@@ -101,7 +114,8 @@
                     </button>
                     <button class="nav-btn" data-tab="contacts" title="Danh bạ & Lời mời kết bạn">
                         <i class="fa-solid fa-address-book"></i>
-                        <span class="unread-badge-global" id="friend-req-badge" style="display:none; background:#0084ff;">0</span>
+                        <span class="unread-badge-global" id="friend-req-badge"
+                            style="display:none; background:#0084ff;">0</span>
                     </button>
                     <button class="nav-btn" id="btn-nav-add-friend" title="Tìm bạn bằng Số Điện Thoại / Tên">
                         <i class="fa-solid fa-user-plus"></i>
@@ -132,7 +146,8 @@
                 <div class="search-box">
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
                     <input type="text" id="search-input" placeholder="Tìm kiếm tin nhắn, bạn bè...">
-                    <button id="clear-search-btn" class="clear-btn" style="display:none;"><i class="fa-solid fa-xmark"></i></button>
+                    <button id="clear-search-btn" class="clear-btn" style="display:none;"><i
+                            class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="header-actions">
                     <button class="icon-btn" id="btn-quick-add-friend" title="Kết bạn qua SĐT / Tên">
@@ -162,8 +177,10 @@
             <div class="contacts-container" id="contacts-container" style="display:none;">
                 <!-- Friend Requests Section -->
                 <div class="friend-requests-section" id="friend-requests-section" style="display:none;">
-                    <div class="contacts-category-title" style="color:var(--primary); display:flex; justify-content:space-between; align-items:center;">
-                        <span><i class="fa-solid fa-user-clock"></i> LỜI MỜI KẾT BẠN (<span id="req-count-num">0</span>)</span>
+                    <div class="contacts-category-title"
+                        style="color:var(--primary); display:flex; justify-content:space-between; align-items:center;">
+                        <span><i class="fa-solid fa-user-clock"></i> LỜI MỜI KẾT BẠN (<span
+                                id="req-count-num">0</span>)</span>
                     </div>
                     <div class="friend-requests-list" id="friend-requests-list">
                         <!-- Pending requests dynamically populated here -->
@@ -186,8 +203,9 @@
                         <i class="fa-solid fa-comments"></i>
                     </div>
                 </div>
-                <h2>Chào mừng bạn đến với Zalo Messenger Web!</h2>
-                <p>Tìm bạn bè bằng số điện thoại, gửi lời mời kết bạn hoặc chọn cuộc trò chuyện để bắt đầu nhắn tin thời gian thực.</p>
+                <h2>Chào mừng bạn đến với Chat Together Web!</h2>
+                <p>Tìm bạn bè bằng số điện thoại, gửi lời mời kết bạn hoặc chọn cuộc trò chuyện để bắt đầu nhắn tin thời
+                    gian thực.</p>
                 <div class="empty-quick-actions">
                     <button class="btn btn-primary" id="btn-empty-add-friend">
                         <i class="fa-solid fa-user-plus"></i> Tìm & Kết bạn qua SĐT
@@ -296,7 +314,8 @@
 
                     <div class="input-main-row">
                         <div class="input-editor-wrap">
-                            <textarea id="message-input" rows="1" placeholder="Nhập tin nhắn... (Enter để gửi, Shift+Enter xuống dòng)"></textarea>
+                            <textarea id="message-input" rows="1"
+                                placeholder="Nhập tin nhắn... (Enter để gửi, Shift+Enter xuống dòng)"></textarea>
                         </div>
 
                         <div class="input-actions-right">
@@ -373,7 +392,8 @@
                 <div class="search-box" style="margin-bottom:16px;">
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
                     <input type="text" id="friend-search-input" placeholder="Ví dụ: 0901234567 hoặc lethimai...">
-                    <button id="btn-do-search-friend" class="btn btn-primary" style="padding:4px 12px; font-size:12px;">Tìm</button>
+                    <button id="btn-do-search-friend" class="btn btn-primary"
+                        style="padding:4px 12px; font-size:12px;">Tìm</button>
                 </div>
 
                 <div class="friend-search-results" id="friend-search-results">
@@ -395,7 +415,8 @@
             <div class="modal-body">
                 <div class="form-group">
                     <label>Tên nhóm:</label>
-                    <input type="text" id="new-group-name" placeholder="Ví dụ: Team Dự án 2026, Bạn Thân..." class="input-control">
+                    <input type="text" id="new-group-name" placeholder="Ví dụ: Team Dự án 2026, Bạn Thân..."
+                        class="input-control">
                 </div>
                 <div class="form-group">
                     <label>Chọn bạn bè vào nhóm:</label>
@@ -424,7 +445,8 @@
                 <div class="profile-avatar-container">
                     <img id="profile-avatar-img" src="" alt="Avatar" class="profile-avatar-big">
                     <span id="profile-status-dot" class="status-indicator online"></span>
-                    <button id="btn-change-avatar" class="avatar-edit-badge" title="Đổi ảnh đại diện" style="display:none;">
+                    <button id="btn-change-avatar" class="avatar-edit-badge" title="Đổi ảnh đại diện"
+                        style="display:none;">
                         <i class="fa-solid fa-camera"></i>
                     </button>
                     <input type="file" id="profile-avatar-file-input" accept="image/*" style="display:none;">
@@ -507,7 +529,8 @@
 
             <!-- Profile Edit Mode (Hidden initially) -->
             <div id="profile-edit-mode" class="profile-body-content" style="display:none;">
-                <form id="profile-edit-form" onsubmit="return false;" style="display:flex; flex-direction:column; gap:12px;">
+                <form id="profile-edit-form" onsubmit="return false;"
+                    style="display:flex; flex-direction:column; gap:12px;">
                     <div class="form-group">
                         <label><i class="fa-solid fa-signature"></i> Họ và tên:</label>
                         <input type="text" id="edit-profile-name" class="input-control" required>
@@ -533,11 +556,13 @@
                     </div>
                     <div class="form-group">
                         <label><i class="fa-solid fa-quote-left"></i> Mô tả bản thân:</label>
-                        <textarea id="edit-profile-bio" rows="2" class="input-control" placeholder="Viết vài dòng giới thiệu về bạn..."></textarea>
+                        <textarea id="edit-profile-bio" rows="2" class="input-control"
+                            placeholder="Viết vài dòng giới thiệu về bạn..."></textarea>
                     </div>
                     <div id="profile-edit-error" class="auth-error" style="display:none;"></div>
                     <div style="display:flex; gap:10px; margin-top:8px;">
-                        <button type="button" class="btn btn-secondary" id="btn-cancel-edit-profile" style="flex:1;">Hủy</button>
+                        <button type="button" class="btn btn-secondary" id="btn-cancel-edit-profile"
+                            style="flex:1;">Hủy</button>
                         <button type="button" class="btn btn-primary" id="btn-save-profile" style="flex:2;">
                             <i class="fa-solid fa-floppy-disk"></i> Lưu thay đổi
                         </button>
@@ -566,7 +591,7 @@
             <div class="incoming-call-badge" id="incoming-call-badge">
                 <i class="fa-solid fa-phone-volume"></i> Cuộc gọi đến
             </div>
-            
+
             <div class="incoming-avatar-box">
                 <div class="incoming-pulse-ring"></div>
                 <div class="incoming-pulse-ring delay"></div>
@@ -598,7 +623,8 @@
     <div class="call-overlay" id="call-overlay" style="display:none;">
         <div class="call-window">
             <div class="call-header">
-                <span class="call-type-badge" id="call-type-badge"><i class="fa-solid fa-video"></i> Cuộc gọi Video</span>
+                <span class="call-type-badge" id="call-type-badge"><i class="fa-solid fa-video"></i> Cuộc gọi
+                    Video</span>
                 <span class="call-timer" id="call-timer">Đang gọi...</span>
             </div>
 
@@ -636,4 +662,5 @@
     <script src="/static/js/call.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
+
 </html>

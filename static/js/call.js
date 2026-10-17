@@ -1,4 +1,4 @@
-// Voice & Video Call Module for Zalo/Messenger Web with Real WebRTC & Realtime Signaling
+// Voice & Video Call Module for Chat Together Web with Real WebRTC & Realtime Signaling
 class CallManager {
     constructor() {
         this.activeCall = null;

@@ -1,4 +1,4 @@
-// Socket.IO Client Handler for Zalo/Messenger
+// Socket.IO Client Handler for Chat Together Web
 class ChatSocket {
     constructor() {
         this.socket = null;
