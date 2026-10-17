@@ -1,13 +1,27 @@
 import os
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from flask import Flask, render_template, request, jsonify, session, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.utils import secure_filename
 
 import database
+
+class CustomJSON:
+    @staticmethod
+    def dumps(*args, **kwargs):
+        def default(o):
+            if isinstance(o, (datetime, date)):
+                return o.strftime("%Y-%m-%d %H:%M:%S")
+            return str(o)
+        kwargs["default"] = default
+        return json.dumps(*args, **kwargs)
+
+    @staticmethod
+    def loads(*args, **kwargs):
+        return json.loads(*args, **kwargs)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["SECRET_KEY"] = "super-secret-zalo-messenger-key-2026"
@@ -16,7 +30,7 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB max upload
 
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading", json=CustomJSON)
 
 # Initialize and seed database on startup
 database.init_db()
@@ -315,7 +329,13 @@ def get_friend_requests():
         ORDER BY f.created_at DESC
     """, (user_id,)).fetchall()
     conn.close()
-    return jsonify([dict(r) for r in rows])
+    res = []
+    for r in rows:
+        item = dict(r)
+        if item.get("created_at"):
+            item["created_at"] = str(item["created_at"])
+        res.append(item)
+    return jsonify(res)
 
 @app.route("/api/friends/respond", methods=["POST"])
 def respond_friend_request():
@@ -572,6 +592,10 @@ def get_messages(conv_id):
     messages = []
     for r in rows:
         msg = dict(r)
+        if msg.get("created_at") and hasattr(msg["created_at"], "strftime"):
+            msg["created_at"] = msg["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+        elif msg.get("created_at"):
+            msg["created_at"] = str(msg["created_at"])
         msg["reply_to"] = parse_json_or_dict(msg["reply_json"])
         del msg["reply_json"]
         msg["reactions"] = rx_map.get(msg["id"], [])
@@ -624,6 +648,11 @@ def send_message_rest(conv_id):
     """, (msg_id,)).fetchone()
     
     msg_dict = dict(msg)
+    if msg_dict.get("created_at") and hasattr(msg_dict["created_at"], "strftime"):
+        msg_dict["created_at"] = msg_dict["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+    elif msg_dict.get("created_at"):
+        msg_dict["created_at"] = str(msg_dict["created_at"])
+
     msg_dict["reactions"] = []
     
     if reply_to_id:
@@ -637,9 +666,15 @@ def send_message_rest(conv_id):
     else:
         msg_dict["reply_to"] = None
 
+    participants = conn.execute("SELECT user_id FROM participants WHERE conversation_id = ?", (conv_id,)).fetchall()
     conn.close()
 
+    # Realtime emit to conversation room
     socketio.emit("new_message", msg_dict, room=f"conv_{conv_id}")
+    # Realtime emit to each participant's user room (updates sidebar unread badges instantly)
+    for p in participants:
+        socketio.emit("new_message", msg_dict, room=f"user_{p['user_id']}")
+
     return jsonify(msg_dict)
 
 @app.route("/api/upload", methods=["POST"])

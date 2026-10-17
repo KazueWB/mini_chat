@@ -201,6 +201,7 @@ class ChatApp {
 
     async handleLogout() {
         if (!confirm("Bạn có chắc chắn muốn đăng xuất không?")) return;
+        if (this.syncInterval) clearInterval(this.syncInterval);
         try {
             await fetch("/api/auth/logout", { method: "POST" });
             this.currentUser = null;
@@ -241,6 +242,8 @@ class ChatApp {
         await this.loadConversations();
         await this.loadFriends();
         await this.loadFriendRequests();
+
+        this.startPollingSync();
 
         if (this.conversations.length > 0) {
             this.selectConversation(this.conversations[0].id);
@@ -738,11 +741,15 @@ class ChatApp {
         window.chatSocket.stopTyping(this.currentUser);
 
         try {
-            await fetch(`/api/conversations/${convId}/messages`, {
+            const res = await fetch(`/api/conversations/${convId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             });
+            const data = await res.json();
+            if (data && data.id) {
+                this.handleIncomingMessage(data);
+            }
             window.soundManager.playSent();
         } catch (err) {
             console.error("Failed to send message:", err);
@@ -776,11 +783,15 @@ class ChatApp {
                 reply_to_id: this.replyTarget ? this.replyTarget.id : null
             };
 
-            await fetch(`/api/conversations/${convId}/messages`, {
+            const res = await fetch(`/api/conversations/${convId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             });
+            const data = await res.json();
+            if (data && data.id) {
+                this.handleIncomingMessage(data);
+            }
 
             window.soundManager.playSent();
             this.cancelReply();
@@ -922,7 +933,13 @@ class ChatApp {
 
     // ---------------- REALTIME EVENT DISPATCH ----------------
     handleIncomingMessage(msg) {
+        if (!msg || !msg.id) return;
+
         if (this.activeConv && this.activeConv.conversation.id === msg.conversation_id) {
+            // Prevent duplicate message rendering
+            if (this.activeConv.messages.some(m => m.id === msg.id)) {
+                return;
+            }
             this.activeConv.messages.push(msg);
             const row = this.createMessageElement(msg);
             this.messagesStream.appendChild(row);
@@ -931,17 +948,24 @@ class ChatApp {
             if (msg.sender_id !== this.currentUser.id) {
                 window.soundManager.playReceived();
             }
-        } else {
-            const conv = this.conversations.find(c => c.id === msg.conversation_id);
-            if (conv) {
+        }
+
+        const conv = this.conversations.find(c => c.id === msg.conversation_id);
+        if (conv) {
+            conv.last_message = msg;
+            if (!this.activeConv || this.activeConv.conversation.id !== msg.conversation_id) {
                 conv.unread_count = (conv.unread_count || 0) + 1;
-                conv.last_message = msg;
-                this.renderConversations();
-                this.updateGlobalUnreadBadge();
                 window.soundManager.playReceived();
-            } else {
-                this.loadConversations();
             }
+            const idx = this.conversations.indexOf(conv);
+            if (idx > 0) {
+                this.conversations.splice(idx, 1);
+                this.conversations.unshift(conv);
+            }
+            this.renderConversations();
+            this.updateGlobalUnreadBadge();
+        } else {
+            this.loadConversations();
         }
     }
 
@@ -1371,9 +1395,56 @@ class ChatApp {
         }, 50);
     }
 
+    startPollingSync() {
+        if (this.syncInterval) clearInterval(this.syncInterval);
+        this.syncInterval = setInterval(async () => {
+            if (!this.currentUser || document.hidden) return;
+            if (this.activeConv && this.activeConv.conversation) {
+                try {
+                    const cid = this.activeConv.conversation.id;
+                    const res = await fetch(`/api/conversations/${cid}/messages`);
+                    const data = await res.json();
+                    if (data && data.messages && this.activeConv && this.activeConv.conversation.id === cid) {
+                        let hasNew = false;
+                        data.messages.forEach(m => {
+                            if (!this.activeConv.messages.some(existing => existing.id === m.id)) {
+                                this.activeConv.messages.push(m);
+                                const row = this.createMessageElement(m);
+                                this.messagesStream.appendChild(row);
+                                hasNew = true;
+                                if (m.sender_id !== this.currentUser.id) {
+                                    window.soundManager.playReceived();
+                                }
+                            }
+                        });
+                        if (hasNew) {
+                            this.scrollToBottom();
+                        }
+                    }
+                } catch (e) {
+                    // ignore sync error
+                }
+            }
+        }, 3000);
+    }
+
+    parseDate(val) {
+        if (!val) return new Date();
+        if (val instanceof Date) return isNaN(val.getTime()) ? new Date() : val;
+        const s = String(val).trim();
+        let d = new Date(s);
+        if (!isNaN(d.getTime())) return d;
+        d = new Date(s.replace(" ", "T"));
+        if (!isNaN(d.getTime())) return d;
+        d = new Date(s.replace(/-/g, "/"));
+        if (!isNaN(d.getTime())) return d;
+        return new Date();
+    }
+
     formatRelativeTime(dateStr) {
         if (!dateStr) return "";
-        const d = new Date(dateStr.replace(" ", "T") + "Z");
+        const d = this.parseDate(dateStr);
+        if (isNaN(d.getTime())) return "";
         const h = d.getHours().toString().padStart(2, "0");
         const m = d.getMinutes().toString().padStart(2, "0");
         return `${h}:${m}`;
@@ -1381,7 +1452,11 @@ class ChatApp {
 
     formatTimeOnly(dateStr) {
         if (!dateStr) return "";
-        const d = new Date(dateStr.replace(" ", "T") + "Z");
+        const d = this.parseDate(dateStr);
+        if (isNaN(d.getTime())) {
+            const now = new Date();
+            return `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+        }
         const h = d.getHours().toString().padStart(2, "0");
         const m = d.getMinutes().toString().padStart(2, "0");
         return `${h}:${m}`;
@@ -1389,7 +1464,8 @@ class ChatApp {
 
     formatDateSeparator(dateStr) {
         if (!dateStr) return "Hôm nay";
-        const d = new Date(dateStr.replace(" ", "T") + "Z");
+        const d = this.parseDate(dateStr);
+        if (isNaN(d.getTime())) return "Hôm nay";
         const now = new Date();
         if (d.toDateString() === now.toDateString()) {
             return "Hôm nay";

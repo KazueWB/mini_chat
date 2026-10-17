@@ -8,17 +8,35 @@ class ChatSocket {
     }
 
     connect(userId) {
+        this.userId = userId;
         if (this.socket) {
             this.socket.disconnect();
         }
 
         this.socket = io({
-            transports: ["websocket", "polling"]
+            transports: ["websocket", "polling"],
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            timeout: 20000
         });
 
         this.socket.on("connect", () => {
             console.log("[Socket] Connected to server, ID:", this.socket.id);
-            this.socket.emit("join", { user_id: userId, conversation_id: this.currentConvId });
+            this.socket.emit("join", { user_id: this.userId, conversation_id: this.currentConvId });
+        });
+
+        this.socket.on("reconnect", () => {
+            console.log("[Socket] Reconnected to server, re-joining rooms...");
+            this.socket.emit("join", { user_id: this.userId, conversation_id: this.currentConvId });
+            if (window.app) {
+                window.app.loadConversations();
+            }
+        });
+
+        this.socket.on("connect_error", (err) => {
+            console.warn("[Socket] Connect error, retrying...", err.message);
         });
 
         // Listeners
@@ -90,7 +108,7 @@ class ChatSocket {
         }
         this.currentConvId = convId;
         if (this.socket && convId) {
-            this.socket.emit("join", { conversation_id: convId });
+            this.socket.emit("join", { user_id: this.userId, conversation_id: convId });
         }
     }
 
