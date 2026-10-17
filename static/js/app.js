@@ -288,6 +288,17 @@ class ChatApp {
 
         this.startPollingSync();
 
+        if (!this.presenceTimer) {
+            this.presenceTimer = setInterval(() => {
+                if (this.activeConv && this.activeConv.conversation && this.activeConv.conversation.type === "direct") {
+                    const other = this.activeConv.participants.find(p => p.id !== this.currentUser.id);
+                    if (other && other.status !== "online") {
+                        this.updateChatHeaderStatus(other);
+                    }
+                }
+            }, 30000);
+        }
+
         if (this.conversations.length > 0) {
             this.selectConversation(this.conversations[0].id);
         } else {
@@ -567,28 +578,25 @@ class ChatApp {
             const conv = data.conversation;
             let title = conv.name;
             let avatar = conv.avatar_url;
-            let statusText = "Đang hoạt động";
-            let statusDotClass = "online";
 
             if (conv.type === "direct") {
                 const other = data.participants.find(p => p.id !== this.currentUser.id);
                 if (other) {
                     title = other.display_name;
                     avatar = other.avatar_url;
-                    statusText = other.status === "online" ? "Đang hoạt động" : (other.status === "busy" ? "Bận" : "Vắng mặt");
-                    statusDotClass = other.status || "offline";
+                    this.updateChatHeaderStatus(other);
                 }
             } else {
                 title = conv.name;
                 avatar = conv.avatar_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${conv.id}`;
-                statusText = `${data.participants.length} thành viên`;
-                statusDotClass = "group";
+                this.chatHeaderStatusDot.className = "status-indicator group";
+                this.chatHeaderStatusText.textContent = `${data.participants.length} thành viên`;
+                this.chatHeaderStatusText.classList.remove("online");
+                this.chatHeaderStatusText.style.color = "var(--text-secondary)";
             }
 
             this.chatHeaderName.textContent = title;
             this.chatHeaderAvatar.src = avatar;
-            this.chatHeaderStatusDot.className = `status-indicator ${statusDotClass}`;
-            this.chatHeaderStatusText.textContent = statusText;
 
             if (conv.type === "direct") {
                 const other = data.participants.find(p => p.id !== this.currentUser.id);
@@ -1130,12 +1138,50 @@ class ChatApp {
     }
 
     handleUserStatusChanged(data) {
-        const user = this.friends.find(u => u.id === data.user_id);
-        if (user) {
-            user.status = data.status;
-            if (data.bio) user.bio = data.bio;
+        console.log("[Presence] User status changed:", data);
+        
+        // 1. Update in friends list
+        const friend = this.friends.find(u => u.id === data.user_id);
+        if (friend) {
+            friend.status = data.status;
+            if (data.last_seen) friend.last_seen = data.last_seen;
+            if (data.bio) friend.bio = data.bio;
+            this.renderFriendsList();
         }
-        this.renderFriendsList();
+
+        // 2. Update in conversations list
+        const conv = this.conversations.find(c => c.type === 'direct' && c.other_user?.id === data.user_id);
+        if (conv) {
+            conv.status = data.status;
+            if (data.last_seen) conv.last_seen = data.last_seen;
+            if (conv.other_user) {
+                conv.other_user.status = data.status;
+                if (data.last_seen) conv.other_user.last_seen = data.last_seen;
+            }
+            const dot = document.querySelector(`.conv-item[data-id="${conv.id}"] .status-indicator`);
+            if (dot) {
+                dot.className = `status-indicator ${data.status === 'online' ? 'online' : 'offline'}`;
+            }
+        }
+
+        // 3. Update active conversation header if currently chatting with this user
+        if (this.activeConv && this.activeConv.conversation && this.activeConv.conversation.type === "direct") {
+            const other = this.activeConv.participants.find(p => p.id !== this.currentUser.id);
+            if (other && other.id === data.user_id) {
+                other.status = data.status;
+                if (data.last_seen) other.last_seen = data.last_seen;
+                this.updateChatHeaderStatus(other);
+            }
+        }
+
+        // 4. Update profile modal if open for this user
+        if (this.activeProfileUser && this.activeProfileUser.id === data.user_id) {
+            this.activeProfileUser.status = data.status;
+            if (data.last_seen) this.activeProfileUser.last_seen = data.last_seen;
+            this.profileStatusDot.className = `status-indicator ${data.status === 'online' ? 'online' : 'offline'}`;
+            this.profileStatusBadge.textContent = this.formatLastSeen(data.status, data.last_seen);
+            this.profileStatusBadge.style.color = data.status === 'online' ? '#10b981' : 'var(--text-secondary)';
+        }
     }
 
     // ---------------- INFO SIDEBAR & MEDIA GALLERY ----------------
@@ -1279,9 +1325,8 @@ class ChatApp {
             this.profileDisplayName.textContent = data.display_name || '--';
             this.profileUsername.textContent = `@${data.username || ''}`;
             
-            const statusNames = { online: 'Đang hoạt động', busy: 'Đang bận', away: 'Vắng mặt', offline: 'Ngoại tuyến' };
-            this.profileStatusBadge.textContent = statusNames[data.status] || 'Đang hoạt động';
-            this.profileStatusBadge.style.color = data.status === 'online' ? '#22c55e' : (data.status === 'busy' ? '#ef4444' : '#f59e0b');
+            this.profileStatusBadge.textContent = this.formatLastSeen(data.status, data.last_seen);
+            this.profileStatusBadge.style.color = data.status === 'online' ? '#10b981' : 'var(--text-secondary)';
 
             this.profilePhone.textContent = data.phone || 'Chưa cập nhật';
             this.profileDob.textContent = data.dob || 'Chưa cập nhật';
@@ -1943,6 +1988,61 @@ class ChatApp {
         }
 
         return `${vn.getUTCDate()} Tháng ${vn.getUTCMonth() + 1}, ${vn.getUTCFullYear()}`;
+    }
+
+    formatLastSeen(status, lastSeenStr) {
+        if (status === "online") {
+            return "Đang hoạt động";
+        }
+
+        if (!lastSeenStr) {
+            return "Tài khoản đã lâu không hoạt động";
+        }
+
+        const d = this.parseDate(lastSeenStr);
+        if (isNaN(d.getTime())) {
+            return "Tài khoản đã lâu không hoạt động";
+        }
+
+        const now = new Date();
+        const diffMs = now.getTime() - d.getTime();
+        if (diffMs < 0) {
+            return "Vừa mới truy cập";
+        }
+
+        const diffSecs = Math.floor(diffMs / 1000);
+        const diffMins = Math.floor(diffSecs / 60);
+        const diffHours = Math.floor(diffMins / 60);
+        const diffDays = Math.floor(diffHours / 24);
+
+        if (diffMins < 1) {
+            return "Vừa mới truy cập";
+        }
+        if (diffMins < 60) {
+            return `Hoạt động ${diffMins} phút trước`;
+        }
+        if (diffHours < 24) {
+            return `Hoạt động ${diffHours} giờ trước`;
+        }
+        if (diffDays < 30) {
+            return `Hoạt động ${diffDays} ngày trước`;
+        }
+        return "Tài khoản đã lâu không hoạt động";
+    }
+
+    updateChatHeaderStatus(other) {
+        if (!other) return;
+        const isOnline = other.status === "online";
+        this.chatHeaderStatusDot.className = `status-indicator ${isOnline ? 'online' : 'offline'}`;
+        const text = this.formatLastSeen(other.status, other.last_seen);
+        this.chatHeaderStatusText.textContent = text;
+        if (isOnline) {
+            this.chatHeaderStatusText.classList.add("online");
+            this.chatHeaderStatusText.style.color = "#10b981";
+        } else {
+            this.chatHeaderStatusText.classList.remove("online");
+            this.chatHeaderStatusText.style.color = "var(--text-secondary)";
+        }
     }
 
     async callUserBack(targetUserId, type = "audio") {

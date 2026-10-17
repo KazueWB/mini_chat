@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import threading
 from datetime import datetime, date
 from flask import Flask, render_template, request, jsonify, session, send_from_directory
 from flask_cors import CORS
@@ -37,6 +38,13 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading", json=
 # Initialize and seed database on startup
 database.init_db()
 database.seed_db()
+try:
+    _conn = database.get_db()
+    _conn.execute("UPDATE users SET status = 'offline'")
+    _conn.commit()
+    _conn.close()
+except Exception as _e:
+    pass
 
 # Helper to safely parse json string or dict (PostgreSQL vs SQLite)
 def parse_json_or_dict(val):
@@ -195,6 +203,23 @@ def auth_login():
 
 @app.route("/api/auth/logout", methods=["POST"])
 def auth_logout():
+    user_id = get_current_user_id()
+    if user_id:
+        user_connected_sids.pop(user_id, None)
+        try:
+            conn = database.get_db()
+            conn.execute("UPDATE users SET status = 'offline', last_seen = CURRENT_TIMESTAMP WHERE id = ?", (user_id,))
+            conn.commit()
+            row = conn.execute("SELECT last_seen FROM users WHERE id = ?", (user_id,)).fetchone()
+            conn.close()
+            last_seen_val = format_datetime_utc(row["last_seen"]) if row else format_datetime_utc(datetime.utcnow())
+            socketio.emit("user_status_changed", {
+                "user_id": user_id,
+                "status": "offline",
+                "last_seen": last_seen_val
+            })
+        except Exception as e:
+            pass
     session.clear()
     return jsonify({"success": True})
 
@@ -522,14 +547,26 @@ def get_friends():
     """
     rows = conn.execute(query, (user_id, user_id)).fetchall()
     conn.close()
-    return jsonify([dict(r) for r in rows])
+    res = []
+    for r in rows:
+        item = dict(r)
+        if item.get("last_seen"):
+            item["last_seen"] = format_datetime_utc(item["last_seen"])
+        res.append(item)
+    return jsonify(res)
 
 @app.route("/api/users", methods=["GET"])
 def get_users():
     conn = database.get_db()
     users = conn.execute("SELECT id, username, phone, display_name, avatar_url, status, bio, last_seen FROM users ORDER BY display_name ASC").fetchall()
     conn.close()
-    return jsonify([dict(u) for u in users])
+    res = []
+    for u in users:
+        item = dict(u)
+        if item.get("last_seen"):
+            item["last_seen"] = format_datetime_utc(item["last_seen"])
+        res.append(item)
+    return jsonify(res)
 
 # ----------------- CONVERSATION APIS -----------------
 @app.route("/api/conversations", methods=["GET"])
@@ -586,9 +623,12 @@ def get_conversations():
             """, (conv["id"], user_id)).fetchone()
             if other:
                 conv["other_user"] = dict(other)
+                if conv["other_user"].get("last_seen"):
+                    conv["other_user"]["last_seen"] = format_datetime_utc(conv["other_user"]["last_seen"])
                 conv["name"] = other["display_name"]
                 conv["avatar_url"] = other["avatar_url"]
                 conv["status"] = other["status"]
+                conv["last_seen"] = conv["other_user"].get("last_seen", "")
             else:
                 conv["other_user"] = None
         else:
@@ -725,11 +765,18 @@ def get_messages(conv_id):
 
     conv_info = conn.execute("SELECT id, type, name, avatar_url FROM conversations WHERE id = ?", (conv_id,)).fetchone()
     participants = conn.execute("""
-        SELECT u.id, u.display_name, u.avatar_url, u.status, u.bio, p.role
+        SELECT u.id, u.display_name, u.avatar_url, u.status, u.bio, u.last_seen, p.role
         FROM participants p
         JOIN users u ON p.user_id = u.id
         WHERE p.conversation_id = ?
     """, (conv_id,)).fetchall()
+    
+    participants_list = []
+    for p in participants:
+        pd = dict(p)
+        if pd.get("last_seen"):
+            pd["last_seen"] = format_datetime_utc(pd["last_seen"])
+        participants_list.append(pd)
 
     messages = []
     for r in rows:
@@ -744,7 +791,7 @@ def get_messages(conv_id):
     conn.close()
     return jsonify({
         "conversation": dict(conv_info),
-        "participants": [dict(p) for p in participants],
+        "participants": participants_list,
         "pinned": pinned_list,
         "messages": messages
     })
@@ -961,6 +1008,39 @@ def pin_message(conv_id, msg_id):
     return jsonify(payload)
 
 # ----------------- SOCKET.IO REALTIME EVENTS -----------------
+sid_to_user = {}
+user_connected_sids = {}
+
+def check_user_offline(uid):
+    if uid not in user_connected_sids or len(user_connected_sids[uid]) == 0:
+        user_connected_sids.pop(uid, None)
+        try:
+            conn = database.get_db()
+            conn.execute("UPDATE users SET status = 'offline', last_seen = CURRENT_TIMESTAMP WHERE id = ?", (uid,))
+            conn.commit()
+            row = conn.execute("SELECT last_seen FROM users WHERE id = ?", (uid,)).fetchone()
+            conn.close()
+            last_seen_val = format_datetime_utc(row["last_seen"]) if row else format_datetime_utc(datetime.utcnow())
+            socketio.emit("user_status_changed", {
+                "user_id": uid,
+                "status": "offline",
+                "last_seen": last_seen_val
+            })
+        except Exception as e:
+            print("[Presence] Error setting offline:", e)
+
+@socketio.on("disconnect")
+def on_disconnect():
+    sid = request.sid
+    user_id = sid_to_user.pop(sid, None)
+    if user_id:
+        sids = user_connected_sids.get(user_id, set())
+        sids.discard(sid)
+        if len(sids) == 0:
+            timer = threading.Timer(2.0, check_user_offline, args=[user_id])
+            timer.daemon = True
+            timer.start()
+
 @socketio.on("join")
 def on_join(data):
     user_id = data.get("user_id")
@@ -968,7 +1048,43 @@ def on_join(data):
     if conv_id:
         join_room(f"conv_{conv_id}")
     if user_id:
-        join_room(f"user_{user_id}")
+        try:
+            uid = int(user_id)
+            join_room(f"user_{uid}")
+            sid = request.sid
+            sid_to_user[sid] = uid
+            was_offline = (uid not in user_connected_sids or len(user_connected_sids[uid]) == 0)
+            if uid not in user_connected_sids:
+                user_connected_sids[uid] = set()
+            user_connected_sids[uid].add(sid)
+
+            if was_offline:
+                conn = database.get_db()
+                conn.execute("UPDATE users SET status = 'online', last_seen = CURRENT_TIMESTAMP WHERE id = ?", (uid,))
+                conn.commit()
+                row = conn.execute("SELECT last_seen FROM users WHERE id = ?", (uid,)).fetchone()
+                conn.close()
+                last_seen_val = format_datetime_utc(row["last_seen"]) if row else format_datetime_utc(datetime.utcnow())
+                socketio.emit("user_status_changed", {
+                    "user_id": uid,
+                    "status": "online",
+                    "last_seen": last_seen_val
+                })
+        except Exception as e:
+            print("[Presence] Error on join:", e)
+
+@socketio.on("heartbeat")
+def on_heartbeat(data):
+    user_id = data.get("user_id")
+    if user_id:
+        try:
+            uid = int(user_id)
+            conn = database.get_db()
+            conn.execute("UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = ?", (uid,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            pass
 
 @socketio.on("leave")
 def on_leave(data):

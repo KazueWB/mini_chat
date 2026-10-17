@@ -36,6 +36,7 @@
     --status-online: #10b981;
     --status-busy: #ef4444;
     --status-away: #f59e0b;
+    --status-offline: #94a3b8;
     
     /* Layout Dimensions */
     --nav-width: 68px;
@@ -218,6 +219,7 @@ body.theme-dark .status-indicator {
 .status-indicator.online { background-color: var(--status-online); }
 .status-indicator.busy { background-color: var(--status-busy); }
 .status-indicator.away { background-color: var(--status-away); }
+.status-indicator.offline { background-color: var(--status-offline); }
 
 .nav-menu {
     display: flex;
@@ -655,8 +657,13 @@ body.theme-dark .conv-item.active {
 
 .conv-status-text {
     font-size: 12.5px;
-    color: var(--status-online);
+    color: var(--text-secondary);
     font-weight: 500;
+}
+
+.conv-status-text.online {
+    color: var(--status-online);
+    font-weight: 600;
 }
 
 .conv-status-text.group {

@@ -25,14 +25,20 @@ class ChatSocket {
         this.socket.on("connect", () => {
             console.log("[Socket] Connected to server, ID:", this.socket.id);
             this.socket.emit("join", { user_id: this.userId, conversation_id: this.currentConvId });
+            this.startHeartbeat();
         });
 
         this.socket.on("reconnect", () => {
             console.log("[Socket] Reconnected to server, re-joining rooms...");
             this.socket.emit("join", { user_id: this.userId, conversation_id: this.currentConvId });
+            this.startHeartbeat();
             if (window.app) {
                 window.app.loadConversations();
             }
+        });
+
+        this.socket.on("disconnect", () => {
+            if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
         });
 
         this.socket.on("connect_error", (err) => {
@@ -149,6 +155,15 @@ class ChatSocket {
             conversation_id: this.currentConvId,
             user_id: user.id
         });
+    }
+
+    startHeartbeat() {
+        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+        this.heartbeatTimer = setInterval(() => {
+            if (this.socket && this.socket.connected && this.userId) {
+                this.socket.emit("heartbeat", { user_id: this.userId });
+            }
+        }, 45000);
     }
 
     sendCallSignal(signalData) {
