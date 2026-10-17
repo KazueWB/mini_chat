@@ -409,6 +409,142 @@
         </div>
     </div>
 
+    <!-- USER PROFILE MODAL (TRANG CÁ NHÂN) -->
+    <div class="modal-overlay" id="modal-user-profile" style="display:none;">
+        <div class="modal-card profile-card-modal">
+            <!-- Profile Banner / Header Cover -->
+            <div class="profile-cover-banner">
+                <button class="modal-close-btn profile-close-btn" data-modal="modal-user-profile">&times;</button>
+            </div>
+
+            <!-- Profile Avatar & Identity -->
+            <div class="profile-header-wrap">
+                <div class="profile-avatar-container">
+                    <img id="profile-avatar-img" src="" alt="Avatar" class="profile-avatar-big">
+                    <span id="profile-status-dot" class="status-indicator online"></span>
+                    <button id="btn-change-avatar" class="avatar-edit-badge" title="Đổi ảnh đại diện" style="display:none;">
+                        <i class="fa-solid fa-camera"></i>
+                    </button>
+                    <input type="file" id="profile-avatar-file-input" accept="image/*" style="display:none;">
+                </div>
+                <h2 id="profile-display-name" class="profile-name-text">--</h2>
+                <div class="profile-badge-row">
+                    <span id="profile-username" class="profile-username-tag">@username</span>
+                    <span id="profile-status-badge" class="profile-status-pill">Đang hoạt động</span>
+                </div>
+            </div>
+
+            <!-- Profile View Mode -->
+            <div id="profile-view-mode" class="profile-body-content">
+                <div class="profile-info-list">
+                    <div class="profile-info-item">
+                        <div class="profile-info-icon"><i class="fa-solid fa-phone"></i></div>
+                        <div class="profile-info-text">
+                            <span class="info-label">Số điện thoại</span>
+                            <span class="info-val" id="profile-phone">--</span>
+                        </div>
+                    </div>
+                    <div class="profile-info-item">
+                        <div class="profile-info-icon"><i class="fa-solid fa-cake-candles"></i></div>
+                        <div class="profile-info-text">
+                            <span class="info-label">Ngày sinh</span>
+                            <span class="info-val" id="profile-dob">Chưa cập nhật</span>
+                        </div>
+                    </div>
+                    <div class="profile-info-item">
+                        <div class="profile-info-icon"><i class="fa-solid fa-venus-mars"></i></div>
+                        <div class="profile-info-text">
+                            <span class="info-label">Giới tính</span>
+                            <span class="info-val" id="profile-gender">Chưa cập nhật</span>
+                        </div>
+                    </div>
+                    <div class="profile-info-item">
+                        <div class="profile-info-icon"><i class="fa-solid fa-quote-left"></i></div>
+                        <div class="profile-info-text">
+                            <span class="info-label">Tiểu sử</span>
+                            <span class="info-val" id="profile-bio">Chưa có giới thiệu bản thân</span>
+                        </div>
+                    </div>
+                    <div class="profile-info-item">
+                        <div class="profile-info-icon"><i class="fa-solid fa-calendar-check"></i></div>
+                        <div class="profile-info-text">
+                            <span class="info-label">Ngày tham gia</span>
+                            <span class="info-val" id="profile-created-at">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- My Profile Actions -->
+                <div id="profile-my-actions" class="profile-footer-actions" style="display:none;">
+                    <button class="btn btn-primary btn-block" id="btn-open-edit-profile">
+                        <i class="fa-solid fa-user-pen"></i> Chỉnh sửa thông tin cá nhân
+                    </button>
+                    <button class="btn btn-secondary btn-block" id="btn-randomize-avatar" style="margin-top:8px;">
+                        <i class="fa-solid fa-dice"></i> Đổi avatar hoạt hình ngẫu nhiên
+                    </button>
+                </div>
+
+                <!-- Other User Actions -->
+                <div id="profile-other-actions" class="profile-footer-actions" style="display:none;">
+                    <div style="display:flex; gap:10px; width:100%;">
+                        <button class="btn btn-primary" id="btn-profile-chat" style="flex:2;">
+                            <i class="fa-solid fa-comment-dots"></i> Nhắn tin
+                        </button>
+                        <button class="btn btn-secondary" id="btn-profile-call-audio" title="Gọi thoại" style="flex:1;">
+                            <i class="fa-solid fa-phone"></i>
+                        </button>
+                        <button class="btn btn-secondary" id="btn-profile-call-video" title="Gọi video" style="flex:1;">
+                            <i class="fa-solid fa-video"></i>
+                        </button>
+                    </div>
+                    <div id="profile-friendship-wrap" style="margin-top:10px; width:100%;">
+                        <!-- Dynamic friendship action button -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Profile Edit Mode (Hidden initially) -->
+            <div id="profile-edit-mode" class="profile-body-content" style="display:none;">
+                <form id="profile-edit-form" onsubmit="return false;" style="display:flex; flex-direction:column; gap:12px;">
+                    <div class="form-group">
+                        <label><i class="fa-solid fa-signature"></i> Họ và tên:</label>
+                        <input type="text" id="edit-profile-name" class="input-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fa-solid fa-phone"></i> Số điện thoại:</label>
+                        <input type="tel" id="edit-profile-phone" class="input-control" placeholder="0901234567">
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <div class="form-group" style="flex:1;">
+                            <label><i class="fa-solid fa-cake-candles"></i> Ngày sinh:</label>
+                            <input type="date" id="edit-profile-dob" class="input-control">
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label><i class="fa-solid fa-venus-mars"></i> Giới tính:</label>
+                            <select id="edit-profile-gender" class="input-control">
+                                <option value="male">Nam</option>
+                                <option value="female">Nữ</option>
+                                <option value="other">Khác</option>
+                                <option value="unspecified">Chưa xác định</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fa-solid fa-quote-left"></i> Mô tả bản thân:</label>
+                        <textarea id="edit-profile-bio" rows="2" class="input-control" placeholder="Viết vài dòng giới thiệu về bạn..."></textarea>
+                    </div>
+                    <div id="profile-edit-error" class="auth-error" style="display:none;"></div>
+                    <div style="display:flex; gap:10px; margin-top:8px;">
+                        <button type="button" class="btn btn-secondary" id="btn-cancel-edit-profile" style="flex:1;">Hủy</button>
+                        <button type="button" class="btn btn-primary" id="btn-save-profile" style="flex:2;">
+                            <i class="fa-solid fa-floppy-disk"></i> Lưu thay đổi
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Image Lightbox Modal -->
     <div class="lightbox-overlay" id="image-lightbox" style="display:none;">
         <button class="lightbox-close" id="btn-close-lightbox">&times;</button>

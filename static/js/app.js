@@ -106,6 +106,40 @@ class ChatApp {
         this.imageLightbox = document.getElementById("image-lightbox");
         this.lightboxImg = document.getElementById("lightbox-img");
         this.lightboxDownloadLink = document.getElementById("lightbox-download-link");
+
+        // Profile Modal elements
+        this.modalUserProfile = document.getElementById("modal-user-profile");
+        this.profileAvatarImg = document.getElementById("profile-avatar-img");
+        this.profileStatusDot = document.getElementById("profile-status-dot");
+        this.btnChangeAvatar = document.getElementById("btn-change-avatar");
+        this.profileAvatarFileInput = document.getElementById("profile-avatar-file-input");
+        this.profileDisplayName = document.getElementById("profile-display-name");
+        this.profileUsername = document.getElementById("profile-username");
+        this.profileStatusBadge = document.getElementById("profile-status-badge");
+        this.profilePhone = document.getElementById("profile-phone");
+        this.profileDob = document.getElementById("profile-dob");
+        this.profileGender = document.getElementById("profile-gender");
+        this.profileBio = document.getElementById("profile-bio");
+        this.profileCreatedAt = document.getElementById("profile-created-at");
+        this.profileMyActions = document.getElementById("profile-my-actions");
+        this.profileOtherActions = document.getElementById("profile-other-actions");
+        this.profileFriendshipWrap = document.getElementById("profile-friendship-wrap");
+        this.profileViewMode = document.getElementById("profile-view-mode");
+        this.profileEditMode = document.getElementById("profile-edit-mode");
+        this.editProfileName = document.getElementById("edit-profile-name");
+        this.editProfilePhone = document.getElementById("edit-profile-phone");
+        this.editProfileDob = document.getElementById("edit-profile-dob");
+        this.editProfileGender = document.getElementById("edit-profile-gender");
+        this.editProfileBio = document.getElementById("edit-profile-bio");
+        this.profileEditError = document.getElementById("profile-edit-error");
+        this.btnOpenEditProfile = document.getElementById("btn-open-edit-profile");
+        this.btnCancelEditProfile = document.getElementById("btn-cancel-edit-profile");
+        this.btnSaveProfile = document.getElementById("btn-save-profile");
+        this.btnRandomizeAvatar = document.getElementById("btn-randomize-avatar");
+        this.btnProfileChat = document.getElementById("btn-profile-chat");
+        this.btnProfileCallAudio = document.getElementById("btn-profile-call-audio");
+        this.btnProfileCallVideo = document.getElementById("btn-profile-call-video");
+        this.userAvatarBtn = document.getElementById("user-avatar-btn");
     }
 
     async init() {
@@ -415,7 +449,7 @@ class ChatApp {
         this.contactsList.innerHTML = this.friends.map(u => `
             <div class="contact-item" onclick="window.app.startDirectChatWith(${u.id})" style="display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer;">
                 <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1;">
-                    <div class="conv-avatar-box">
+                    <div class="conv-avatar-box" onclick="event.stopPropagation(); window.app.openUserProfile(${u.id});" title="Bấm để xem trang cá nhân" style="cursor:pointer;">
                         <img src="${u.avatar_url}" alt="${u.display_name}" class="avatar-circle">
                         <span class="status-indicator ${u.status || 'offline'}"></span>
                     </div>
@@ -545,6 +579,25 @@ class ChatApp {
             this.chatHeaderAvatar.src = avatar;
             this.chatHeaderStatusDot.className = `status-indicator ${statusDotClass}`;
             this.chatHeaderStatusText.textContent = statusText;
+
+            if (conv.type === "direct") {
+                const other = data.participants.find(p => p.id !== this.currentUser.id);
+                this.chatHeaderAvatar.style.cursor = "pointer";
+                this.chatHeaderName.style.cursor = "pointer";
+                this.chatHeaderAvatar.title = "Bấm để xem trang cá nhân";
+                this.chatHeaderName.title = "Bấm để xem trang cá nhân";
+                this.chatHeaderAvatar.onclick = () => {
+                    if (other) this.openUserProfile(other.id);
+                };
+                this.chatHeaderName.onclick = () => {
+                    if (other) this.openUserProfile(other.id);
+                };
+            } else {
+                this.chatHeaderAvatar.style.cursor = "default";
+                this.chatHeaderName.style.cursor = "default";
+                this.chatHeaderAvatar.onclick = null;
+                this.chatHeaderName.onclick = null;
+            }
 
             this.renderPinnedBanner(data.pinned);
             this.renderMessages(data.messages);
@@ -682,7 +735,7 @@ class ChatApp {
         const timeStr = this.formatTimeOnly(msg.created_at);
 
         row.innerHTML = `
-            ${showAvatar ? `<img src="${msg.sender_avatar}" alt="${msg.sender_name}" class="msg-avatar" title="${msg.sender_name}">` : ''}
+            ${showAvatar ? `<img src="${msg.sender_avatar}" alt="${msg.sender_name}" class="msg-avatar" title="Bấm để xem trang cá nhân" onclick="window.app.openUserProfile(${msg.sender_id})" style="cursor:pointer;">` : ''}
             <div class="msg-bubble-wrap">
                 ${showSenderName ? `<span class="msg-sender-name">${this.escapeHTML(msg.sender_name)}</span>` : ''}
                 <div class="msg-bubble">
@@ -1173,6 +1226,232 @@ class ChatApp {
         modalEl.style.display = "none";
     }
 
+    // ---------------- USER PROFILE ----------------
+    async openUserProfile(userId) {
+        if (!userId) return;
+        try {
+            const res = await fetch(`/api/users/${userId}/profile`);
+            const data = await res.json();
+            if (data.error) {
+                alert("Không thể tải thông tin: " + data.error);
+                return;
+            }
+
+            this.activeProfileUser = data;
+
+            // Populate view mode
+            this.profileAvatarImg.src = data.avatar_url;
+            this.profileStatusDot.className = `status-indicator ${data.status || 'offline'}`;
+            this.profileDisplayName.textContent = data.display_name || '--';
+            this.profileUsername.textContent = `@${data.username || ''}`;
+            
+            const statusNames = { online: 'Đang hoạt động', busy: 'Đang bận', away: 'Vắng mặt', offline: 'Ngoại tuyến' };
+            this.profileStatusBadge.textContent = statusNames[data.status] || 'Đang hoạt động';
+            this.profileStatusBadge.style.color = data.status === 'online' ? '#22c55e' : (data.status === 'busy' ? '#ef4444' : '#f59e0b');
+
+            this.profilePhone.textContent = data.phone || 'Chưa cập nhật';
+            this.profileDob.textContent = data.dob || 'Chưa cập nhật';
+            
+            const genderMap = { male: 'Nam', female: 'Nữ', other: 'Khác', unspecified: 'Chưa xác định' };
+            this.profileGender.textContent = genderMap[data.gender] || 'Chưa cập nhật';
+            this.profileBio.textContent = data.bio || 'Chưa có giới thiệu bản thân';
+            this.profileCreatedAt.textContent = data.created_at ? this.formatDateSeparator(data.created_at) : 'Thành viên mới';
+
+            // Switch to view mode
+            this.profileViewMode.style.display = "block";
+            this.profileEditMode.style.display = "none";
+            this.profileEditError.style.display = "none";
+
+            if (data.is_me) {
+                this.btnChangeAvatar.style.display = "flex";
+                this.profileMyActions.style.display = "block";
+                this.profileOtherActions.style.display = "none";
+
+                // Pre-fill edit inputs
+                this.editProfileName.value = data.display_name || '';
+                this.editProfilePhone.value = data.phone || '';
+                this.editProfileDob.value = data.dob || '';
+                this.editProfileGender.value = data.gender || 'unspecified';
+                this.editProfileBio.value = data.bio || '';
+            } else {
+                this.btnChangeAvatar.style.display = "none";
+                this.profileMyActions.style.display = "none";
+                this.profileOtherActions.style.display = "block";
+
+                // Direct chat action
+                this.btnProfileChat.onclick = () => {
+                    this.closeModal(this.modalUserProfile);
+                    this.startDirectChatWith(data.id);
+                };
+
+                // Call actions
+                this.btnProfileCallAudio.onclick = () => {
+                    this.closeModal(this.modalUserProfile);
+                    window.callManager.startCall("audio", data, null);
+                };
+                this.btnProfileCallVideo.onclick = () => {
+                    this.closeModal(this.modalUserProfile);
+                    window.callManager.startCall("video", data, null);
+                };
+
+                // Friendship button
+                if (data.friendship_status === "accepted") {
+                    this.profileFriendshipWrap.innerHTML = `
+                        <button class="btn btn-secondary btn-block" style="opacity:0.85; pointer-events:none;">
+                            <i class="fa-solid fa-user-check"></i> Đang là bạn bè
+                        </button>
+                    `;
+                } else if (data.friendship_status === "pending_sent") {
+                    this.profileFriendshipWrap.innerHTML = `
+                        <button class="btn btn-secondary btn-block" disabled style="opacity:0.7;">
+                            <i class="fa-solid fa-clock"></i> Đã gửi lời mời kết bạn
+                        </button>
+                    `;
+                } else if (data.friendship_status === "pending_received") {
+                    this.profileFriendshipWrap.innerHTML = `
+                        <button class="btn btn-primary btn-block" onclick="window.app.respondFriendRequest(${data.request_id}, 'accept'); window.app.closeModal(window.app.modalUserProfile);">
+                            <i class="fa-solid fa-check"></i> Chấp nhận kết bạn
+                        </button>
+                    `;
+                } else {
+                    this.profileFriendshipWrap.innerHTML = `
+                        <button class="btn btn-primary btn-block" onclick="window.app.sendFriendRequest(${data.id}); window.app.openUserProfile(${data.id});">
+                            <i class="fa-solid fa-user-plus"></i> Gửi lời mời kết bạn
+                        </button>
+                    `;
+                }
+            }
+
+            this.openModal(this.modalUserProfile);
+        } catch (err) {
+            console.error("Failed to load user profile:", err);
+        }
+    }
+
+    async saveProfile() {
+        const display_name = this.editProfileName.value.trim();
+        const phone = this.editProfilePhone.value.trim();
+        const dob = this.editProfileDob.value.trim();
+        const gender = this.editProfileGender.value;
+        const bio = this.editProfileBio.value.trim();
+
+        if (!display_name) {
+            this.profileEditError.textContent = "Vui lòng nhập họ và tên!";
+            this.profileEditError.style.display = "block";
+            return;
+        }
+
+        try {
+            const res = await fetch("/api/profile/update", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ display_name, phone, dob, gender, bio })
+            });
+            const data = await res.json();
+            if (data.error) {
+                this.profileEditError.textContent = data.error;
+                this.profileEditError.style.display = "block";
+                return;
+            }
+
+            this.currentUser = data.user;
+            this.myAvatar.src = data.user.avatar_url;
+            this.openUserProfile(this.currentUser.id);
+        } catch (err) {
+            this.profileEditError.textContent = "Lưu thông tin thất bại!";
+            this.profileEditError.style.display = "block";
+        }
+    }
+
+    async randomizeAvatar() {
+        if (!this.currentUser) return;
+        const seeds = ["Aria", "Felix", "Leo", "Milo", "Luna", "Kai", "Zara", "Chloe", "Sam", "Max", "Bao", "Kiet", "Mai"];
+        const randomSeed = seeds[Math.floor(Math.random() * seeds.length)] + "_" + Date.now();
+        const avatar_url = `https://api.dicebear.com/7.x/bottts/svg?seed=${randomSeed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc`;
+
+        try {
+            const res = await fetch("/api/profile/update", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    display_name: this.currentUser.display_name,
+                    avatar_url
+                })
+            });
+            const data = await res.json();
+            if (data.user) {
+                this.currentUser = data.user;
+                this.myAvatar.src = data.user.avatar_url;
+                this.profileAvatarImg.src = data.user.avatar_url;
+            }
+        } catch (err) {
+            console.error("Failed to randomize avatar:", err);
+        }
+    }
+
+    async handleAvatarUpload(file) {
+        if (!file) return;
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+            const upRes = await fetch("/api/upload", {
+                method: "POST",
+                body: formData
+            });
+            const upData = await upRes.json();
+            if (upData.url) {
+                const res = await fetch("/api/profile/update", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        display_name: this.currentUser.display_name,
+                        avatar_url: upData.url
+                    })
+                });
+                const data = await res.json();
+                if (data.user) {
+                    this.currentUser = data.user;
+                    this.myAvatar.src = data.user.avatar_url;
+                    this.profileAvatarImg.src = data.user.avatar_url;
+                }
+            }
+        } catch (err) {
+            alert("Tải ảnh thất bại: " + err);
+        }
+    }
+
+    handleUserProfileUpdated(data) {
+        if (this.currentUser && this.currentUser.id === data.user_id) {
+            this.currentUser.display_name = data.display_name;
+            this.currentUser.avatar_url = data.avatar_url;
+            this.myAvatar.src = data.avatar_url;
+        }
+
+        if (this.activeProfileUser && this.activeProfileUser.id === data.user_id) {
+            this.profileAvatarImg.src = data.avatar_url;
+            this.profileDisplayName.textContent = data.display_name;
+            this.profilePhone.textContent = data.phone || 'Chưa cập nhật';
+            this.profileDob.textContent = data.dob || 'Chưa cập nhật';
+            const genderMap = { male: 'Nam', female: 'Nữ', other: 'Khác', unspecified: 'Chưa xác định' };
+            this.profileGender.textContent = genderMap[data.gender] || 'Chưa cập nhật';
+            this.profileBio.textContent = data.bio || 'Chưa có giới thiệu bản thân';
+        }
+
+        if (this.activeConv && this.activeConv.conversation.type === "direct") {
+            const other = this.activeConv.participants.find(p => p.id === data.user_id);
+            if (other) {
+                other.display_name = data.display_name;
+                other.avatar_url = data.avatar_url;
+                this.chatHeaderName.textContent = data.display_name;
+                this.chatHeaderAvatar.src = data.avatar_url;
+            }
+        }
+
+        this.loadFriends();
+        this.loadConversations();
+    }
+
     // ---------------- EMOJI PICKER ----------------
     initEmojiPicker() {
         this.emojiCategories = {
@@ -1379,6 +1658,37 @@ class ChatApp {
                 ? this.activeConv.participants.find(p => p.id !== this.currentUser.id) 
                 : null;
             window.callManager.startCall("video", other, this.activeConv.conversation);
+        });
+
+        // Profile Modal Events
+        this.userAvatarBtn.addEventListener("click", () => {
+            if (this.currentUser) this.openUserProfile(this.currentUser.id);
+        });
+
+        this.btnOpenEditProfile.addEventListener("click", () => {
+            this.profileViewMode.style.display = "none";
+            this.profileEditMode.style.display = "block";
+            this.profileEditError.style.display = "none";
+        });
+
+        this.btnCancelEditProfile.addEventListener("click", () => {
+            this.profileViewMode.style.display = "block";
+            this.profileEditMode.style.display = "none";
+            this.profileEditError.style.display = "none";
+        });
+
+        this.btnSaveProfile.addEventListener("click", () => this.saveProfile());
+        this.btnRandomizeAvatar.addEventListener("click", () => this.randomizeAvatar());
+
+        this.btnChangeAvatar.addEventListener("click", () => {
+            this.profileAvatarFileInput.click();
+        });
+
+        this.profileAvatarFileInput.addEventListener("change", (e) => {
+            if (e.target.files[0]) {
+                this.handleAvatarUpload(e.target.files[0]);
+                e.target.value = "";
+            }
         });
     }
 

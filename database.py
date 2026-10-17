@@ -114,6 +114,8 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS dob VARCHAR(20) DEFAULT '';
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(20) DEFAULT 'unspecified';
         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
 
         CREATE TABLE IF NOT EXISTS friendships (

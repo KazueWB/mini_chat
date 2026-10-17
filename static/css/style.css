@@ -2173,3 +2173,197 @@ body.theme-dark .conv-item.active {
     font-size: 12px;
     color: var(--text-secondary);
 }
+
+/* ==================== USER PROFILE MODAL ==================== */
+.profile-card-modal {
+    width: 440px;
+    max-width: 95vw;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    padding: 0;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    background-color: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color);
+}
+
+.profile-cover-banner {
+    height: 120px;
+    background: linear-gradient(135deg, #0084ff 0%, #00c6ff 50%, #0072ff 100%);
+    position: relative;
+}
+
+.profile-close-btn {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    background: rgba(0, 0, 0, 0.4);
+    color: #ffffff;
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-fast);
+}
+
+.profile-close-btn:hover {
+    background: rgba(0, 0, 0, 0.65);
+    transform: scale(1.05);
+}
+
+.profile-header-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: -55px;
+    padding: 0 20px 14px 20px;
+    text-align: center;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.profile-avatar-container {
+    position: relative;
+    width: 104px;
+    height: 104px;
+    margin-bottom: 10px;
+}
+
+.profile-avatar-big {
+    width: 104px;
+    height: 104px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 4px solid var(--bg-surface-elevated);
+    box-shadow: var(--shadow-md);
+    background-color: var(--bg-surface);
+}
+
+.profile-header-wrap .status-indicator {
+    bottom: 6px;
+    right: 6px;
+    width: 18px;
+    height: 18px;
+    border-width: 3px;
+}
+
+.avatar-edit-badge {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background-color: var(--primary);
+    color: #ffffff;
+    border: 2px solid var(--bg-surface-elevated);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: var(--transition-fast);
+}
+
+.avatar-edit-badge:hover {
+    transform: scale(1.1);
+    background-color: var(--primary-hover);
+}
+
+.profile-name-text {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.profile-badge-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.profile-username-tag {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.profile-status-pill {
+    font-size: 11px;
+    padding: 2px 10px;
+    border-radius: var(--radius-full);
+    background-color: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+    font-weight: 600;
+}
+
+.profile-body-content {
+    padding: 16px 20px 20px 20px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.profile-info-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.profile-info-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 14px;
+    background-color: var(--bg-muted);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+}
+
+.profile-info-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(0, 132, 255, 0.12);
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+}
+
+.profile-info-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.info-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.info-val {
+    font-size: 14px;
+    color: var(--text-primary);
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.profile-footer-actions {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}

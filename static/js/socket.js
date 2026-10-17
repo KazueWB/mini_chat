@@ -89,6 +89,12 @@ class ChatSocket {
             }
         });
 
+        this.socket.on("user_profile_updated", (data) => {
+            if (window.app) {
+                window.app.handleUserProfileUpdated(data);
+            }
+        });
+
         this.socket.on("friend_request_received", (data) => {
             if (window.app) {
                 window.app.handleFriendRequestReceived(data);

@@ -92,7 +92,6 @@ def index():
 def health():
     return jsonify({"status": "ok", "service": "mini-chat"})
 
-# ----------------- AUTHENTICATION APIS -----------------
 @app.route("/api/me", methods=["GET"])
 def get_me():
     user_id = get_current_user_id()
@@ -100,10 +99,14 @@ def get_me():
         return jsonify({"authenticated": False}), 200
         
     conn = database.get_db()
-    user = conn.execute("SELECT id, username, phone, display_name, avatar_url, status, bio FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = conn.execute("SELECT id, username, phone, display_name, avatar_url, status, bio, dob, gender, last_seen, created_at FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
     if user:
         res = dict(user)
+        if res.get("created_at") and hasattr(res["created_at"], "strftime"):
+            res["created_at"] = res["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+        if res.get("last_seen") and hasattr(res["last_seen"], "strftime"):
+            res["last_seen"] = res["last_seen"].strftime("%Y-%m-%d %H:%M:%S")
         res["authenticated"] = True
         return jsonify(res)
     return jsonify({"authenticated": False}), 200
@@ -159,7 +162,7 @@ def auth_login():
 
     conn = database.get_db()
     user = conn.execute("""
-        SELECT id, username, phone, display_name, avatar_url, status, bio, password
+        SELECT id, username, phone, display_name, avatar_url, status, bio, dob, gender, password, created_at, last_seen
         FROM users
         WHERE (LOWER(username) = ? OR phone = ?)
     """, (login_id, login_id)).fetchone()
@@ -171,6 +174,10 @@ def auth_login():
     session["user_id"] = user["id"]
     user_dict = dict(user)
     del user_dict["password"]
+    if user_dict.get("created_at") and hasattr(user_dict["created_at"], "strftime"):
+        user_dict["created_at"] = user_dict["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+    if user_dict.get("last_seen") and hasattr(user_dict["last_seen"], "strftime"):
+        user_dict["last_seen"] = user_dict["last_seen"].strftime("%Y-%m-%d %H:%M:%S")
     user_dict["authenticated"] = True
     return jsonify({"success": True, "user": user_dict})
 
@@ -184,7 +191,7 @@ def switch_user():
     data = request.get_json() or {}
     user_id = data.get("user_id")
     conn = database.get_db()
-    user = conn.execute("SELECT id, username, phone, display_name, avatar_url, status, bio FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = conn.execute("SELECT id, username, phone, display_name, avatar_url, status, bio, dob, gender FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
     if user:
         session["user_id"] = user["id"]
@@ -213,6 +220,112 @@ def update_status():
     
     socketio.emit("user_status_changed", {"user_id": user_id, "status": status, "bio": bio})
     return jsonify({"success": True, "status": status})
+
+# ----------------- USER PROFILE APIS -----------------
+@app.route("/api/users/<int:target_user_id>/profile", methods=["GET"])
+def get_user_profile(target_user_id):
+    current_uid = get_current_user_id()
+    conn = database.get_db()
+    user = conn.execute("""
+        SELECT id, username, phone, display_name, avatar_url, status, bio, dob, gender, last_seen, created_at
+        FROM users WHERE id = ?
+    """, (target_user_id,)).fetchone()
+    
+    if not user:
+        conn.close()
+        return jsonify({"error": "Người dùng không tồn tại"}), 404
+        
+    u_dict = dict(user)
+    if u_dict.get("created_at") and hasattr(u_dict["created_at"], "strftime"):
+        u_dict["created_at"] = u_dict["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+    if u_dict.get("last_seen") and hasattr(u_dict["last_seen"], "strftime"):
+        u_dict["last_seen"] = u_dict["last_seen"].strftime("%Y-%m-%d %H:%M:%S")
+
+    if current_uid == target_user_id:
+        u_dict["is_me"] = True
+        u_dict["friendship_status"] = "self"
+    elif current_uid:
+        u_dict["is_me"] = False
+        f = conn.execute("""
+            SELECT id, sender_id, receiver_id, status FROM friendships
+            WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+        """, (current_uid, target_user_id, target_user_id, current_uid)).fetchone()
+        if not f:
+            u_dict["friendship_status"] = "none"
+        elif f["status"] == "accepted":
+            u_dict["friendship_status"] = "accepted"
+        elif f["sender_id"] == current_uid:
+            u_dict["friendship_status"] = "pending_sent"
+        else:
+            u_dict["friendship_status"] = "pending_received"
+            u_dict["request_id"] = f["id"]
+    else:
+        u_dict["is_me"] = False
+        u_dict["friendship_status"] = "none"
+
+    conn.close()
+    return jsonify(u_dict)
+
+@app.route("/api/profile/update", methods=["POST"])
+def update_profile():
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    display_name = data.get("display_name", "").strip()
+    bio = data.get("bio", "").strip()
+    dob = data.get("dob", "").strip()
+    gender = data.get("gender", "unspecified").strip()
+    phone = data.get("phone", "").strip()
+    avatar_url = data.get("avatar_url", "").strip()
+
+    if not display_name:
+        return jsonify({"error": "Tên hiển thị không được để trống"}), 400
+
+    conn = database.get_db()
+    if phone:
+        exist = conn.execute("SELECT id FROM users WHERE phone = ? AND id != ?", (phone, user_id)).fetchone()
+        if exist:
+            conn.close()
+            return jsonify({"error": "Số điện thoại này đã được sử dụng bởi tài khoản khác"}), 400
+
+    if avatar_url:
+        conn.execute("""
+            UPDATE users SET display_name = ?, bio = ?, dob = ?, gender = ?, phone = ?, avatar_url = ?
+            WHERE id = ?
+        """, (display_name, bio, dob, gender, phone, avatar_url, user_id))
+    else:
+        conn.execute("""
+            UPDATE users SET display_name = ?, bio = ?, dob = ?, gender = ?, phone = ?
+            WHERE id = ?
+        """, (display_name, bio, dob, gender, phone, user_id))
+        
+    conn.commit()
+    
+    updated_user = conn.execute("""
+        SELECT id, username, phone, display_name, avatar_url, status, bio, dob, gender, last_seen, created_at
+        FROM users WHERE id = ?
+    """, (user_id,)).fetchone()
+    conn.close()
+
+    u_dict = dict(updated_user)
+    if u_dict.get("created_at") and hasattr(u_dict["created_at"], "strftime"):
+        u_dict["created_at"] = u_dict["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+    if u_dict.get("last_seen") and hasattr(u_dict["last_seen"], "strftime"):
+        u_dict["last_seen"] = u_dict["last_seen"].strftime("%Y-%m-%d %H:%M:%S")
+
+    socketio.emit("user_profile_updated", {
+        "user_id": user_id,
+        "display_name": display_name,
+        "avatar_url": u_dict["avatar_url"],
+        "bio": bio,
+        "dob": dob,
+        "gender": gender,
+        "phone": phone
+    })
+
+    return jsonify({"success": True, "user": u_dict})
 
 # ----------------- FRIEND MANAGEMENT APIS -----------------
 @app.route("/api/friends/search", methods=["GET"])
