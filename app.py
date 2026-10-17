@@ -669,11 +669,15 @@ def send_message_rest(conv_id):
     participants = conn.execute("SELECT user_id FROM participants WHERE conversation_id = ?", (conv_id,)).fetchall()
     conn.close()
 
-    # Realtime emit to conversation room
+    # Realtime emit to conversation room (all active chatters receive the new message)
     socketio.emit("new_message", msg_dict, room=f"conv_{conv_id}")
-    # Realtime emit to each participant's user room (updates sidebar unread badges instantly)
+    # Realtime notify other participants' personal rooms so their sidebar updates
     for p in participants:
-        socketio.emit("new_message", msg_dict, room=f"user_{p['user_id']}")
+        if p["user_id"] != user_id:
+            socketio.emit("conversation_updated", {
+                "conversation_id": conv_id,
+                "last_message": msg_dict
+            }, room=f"user_{p['user_id']}")
 
     return jsonify(msg_dict)
 

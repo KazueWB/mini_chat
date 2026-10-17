@@ -725,9 +725,11 @@ class ChatApp {
 
     // ---------------- SENDING MESSAGES & UPLOADS ----------------
     async sendMessage() {
+        if (this.isSendingMessage) return;
         const text = this.messageInput.value.trim();
         if (!text || !this.activeConv) return;
 
+        this.isSendingMessage = true;
         const convId = this.activeConv.conversation.id;
         const payload = {
             content: text,
@@ -741,18 +743,16 @@ class ChatApp {
         window.chatSocket.stopTyping(this.currentUser);
 
         try {
-            const res = await fetch(`/api/conversations/${convId}/messages`, {
+            await fetch(`/api/conversations/${convId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             });
-            const data = await res.json();
-            if (data && data.id) {
-                this.handleIncomingMessage(data);
-            }
             window.soundManager.playSent();
         } catch (err) {
             console.error("Failed to send message:", err);
+        } finally {
+            this.isSendingMessage = false;
         }
     }
 
@@ -783,15 +783,11 @@ class ChatApp {
                 reply_to_id: this.replyTarget ? this.replyTarget.id : null
             };
 
-            const res = await fetch(`/api/conversations/${convId}/messages`, {
+            await fetch(`/api/conversations/${convId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             });
-            const data = await res.json();
-            if (data && data.id) {
-                this.handleIncomingMessage(data);
-            }
 
             window.soundManager.playSent();
             this.cancelReply();
@@ -935,9 +931,14 @@ class ChatApp {
     handleIncomingMessage(msg) {
         if (!msg || !msg.id) return;
 
-        if (this.activeConv && this.activeConv.conversation.id === msg.conversation_id) {
-            // Prevent duplicate message rendering
-            if (this.activeConv.messages.some(m => m.id === msg.id)) {
+        // 1. Strict DOM Check: Never render twice if element already exists in DOM
+        if (document.getElementById(`msg-${msg.id}`)) {
+            return;
+        }
+
+        if (this.activeConv && this.activeConv.conversation.id == msg.conversation_id) {
+            // 2. Memory array check
+            if (this.activeConv.messages.some(m => m.id == msg.id)) {
                 return;
             }
             this.activeConv.messages.push(msg);
@@ -950,10 +951,31 @@ class ChatApp {
             }
         }
 
-        const conv = this.conversations.find(c => c.id === msg.conversation_id);
+        const conv = this.conversations.find(c => c.id == msg.conversation_id);
         if (conv) {
             conv.last_message = msg;
-            if (!this.activeConv || this.activeConv.conversation.id !== msg.conversation_id) {
+            if (!this.activeConv || this.activeConv.conversation.id != msg.conversation_id) {
+                conv.unread_count = (conv.unread_count || 0) + 1;
+                window.soundManager.playReceived();
+            }
+            const idx = this.conversations.indexOf(conv);
+            if (idx > 0) {
+                this.conversations.splice(idx, 1);
+                this.conversations.unshift(conv);
+            }
+            this.renderConversations();
+            this.updateGlobalUnreadBadge();
+        } else {
+            this.loadConversations();
+        }
+    }
+
+    handleConversationUpdated(data) {
+        if (!data || !data.conversation_id) return;
+        const conv = this.conversations.find(c => c.id == data.conversation_id);
+        if (conv) {
+            conv.last_message = data.last_message;
+            if (!this.activeConv || this.activeConv.conversation.id != data.conversation_id) {
                 conv.unread_count = (conv.unread_count || 0) + 1;
                 window.soundManager.playReceived();
             }
@@ -1407,7 +1429,7 @@ class ChatApp {
                     if (data && data.messages && this.activeConv && this.activeConv.conversation.id === cid) {
                         let hasNew = false;
                         data.messages.forEach(m => {
-                            if (!this.activeConv.messages.some(existing => existing.id === m.id)) {
+                            if (!document.getElementById(`msg-${m.id}`) && !this.activeConv.messages.some(existing => existing.id == m.id)) {
                                 this.activeConv.messages.push(m);
                                 const row = this.createMessageElement(m);
                                 this.messagesStream.appendChild(row);

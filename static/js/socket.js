@@ -47,6 +47,12 @@ class ChatSocket {
             }
         });
 
+        this.socket.on("conversation_updated", (data) => {
+            if (window.app) {
+                window.app.handleConversationUpdated(data);
+            }
+        });
+
         this.socket.on("reaction_updated", (data) => {
             if (window.app) {
                 window.app.handleReactionUpdated(data);
