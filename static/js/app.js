@@ -1088,11 +1088,25 @@ class ChatApp {
                 reply_to_id: this.replyTarget ? this.replyTarget.id : null
             };
 
-            await fetch(`/api/conversations/${convId}/messages`, {
+            const msgRes = await fetch(`/api/conversations/${convId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             });
+            const createdMsg = await msgRes.json();
+
+            // Hiển thị ngay lập tức trong khung chat và mục Hình ảnh & tệp đã gửi
+            if (createdMsg && createdMsg.id && this.activeConv && this.activeConv.conversation.id == convId) {
+                if (!this.activeConv.messages.some(m => m.id == createdMsg.id)) {
+                    this.activeConv.messages.push(createdMsg);
+                }
+                if (!document.getElementById(`msg-${createdMsg.id}`)) {
+                    const row = this.createMessageElement(createdMsg);
+                    this.messagesStream.appendChild(row);
+                    this.scrollToBottom();
+                }
+                this.renderMediaGallery();
+            }
 
             window.soundManager.playSent();
             this.cancelReply();
@@ -1236,29 +1250,35 @@ class ChatApp {
     handleIncomingMessage(msg) {
         if (!msg || !msg.id) return;
 
-        // 1. Strict DOM Check: Never render twice if element already exists in DOM
-        if (document.getElementById(`msg-${msg.id}`)) {
-            return;
-        }
-
         if (this.activeConv && this.activeConv.conversation.id == msg.conversation_id) {
             // Check if this is confirming an optimistic temp message sent by current user
             if (msg.sender_id === this.currentUser.id) {
                 const pending = this.activeConv.messages.find(m => String(m.id).startsWith("temp_") && m.content === msg.content);
                 if (pending) {
                     this.reconcileOptimisticMessage(pending.id, msg);
+                    if (msg.message_type === "image" || msg.message_type === "file") {
+                        this.renderMediaGallery();
+                    }
                     return;
                 }
             }
 
-            // Memory array check
-            if (this.activeConv.messages.some(m => m.id == msg.id)) {
-                return;
+            // Memory array check & update
+            if (!this.activeConv.messages.some(m => m.id == msg.id)) {
+                this.activeConv.messages.push(msg);
             }
-            this.activeConv.messages.push(msg);
-            const row = this.createMessageElement(msg);
-            this.messagesStream.appendChild(row);
-            this.scrollToBottom();
+
+            // Render message element nếu chưa có trong DOM
+            if (!document.getElementById(`msg-${msg.id}`)) {
+                const row = this.createMessageElement(msg);
+                this.messagesStream.appendChild(row);
+                this.scrollToBottom();
+            }
+
+            // Cập nhật ngay lập tức mục Hình ảnh & tệp đã gửi trong thông tin hội thoại
+            if (msg.message_type === "image" || msg.message_type === "file") {
+                this.renderMediaGallery();
+            }
 
             if (msg.sender_id !== this.currentUser.id) {
                 window.soundManager.playReceived();
@@ -1346,6 +1366,9 @@ class ChatApp {
                 if (row) {
                     const newRow = this.createMessageElement(msg);
                     row.replaceWith(newRow);
+                }
+                if (msg.message_type === "image" || msg.message_type === "file") {
+                    this.renderMediaGallery();
                 }
             }
         }
@@ -1512,7 +1535,7 @@ class ChatApp {
         const messages = this.activeConv.messages || [];
 
         if (this.currentMediaTab === "images") {
-            const images = messages.filter(m => m.message_type === "image" && m.media_url);
+            const images = messages.filter(m => m.message_type === "image" && m.media_url && !m.is_recalled);
             if (images.length === 0) {
                 this.infoMediaGallery.innerHTML = `<span style="grid-column: span 3; font-size:12px; color:var(--text-muted); text-align:center; padding:10px 0;">Chưa có ảnh nào</span>`;
             } else {
@@ -1521,7 +1544,7 @@ class ChatApp {
                 `).join("");
             }
         } else {
-            const files = messages.filter(m => m.message_type === "file" && m.media_url);
+            const files = messages.filter(m => m.message_type === "file" && m.media_url && !m.is_recalled);
             if (files.length === 0) {
                 this.infoMediaGallery.innerHTML = `<span style="grid-column: span 3; font-size:12px; color:var(--text-muted); text-align:center; padding:10px 0;">Chưa có tệp tin nào</span>`;
             } else {
