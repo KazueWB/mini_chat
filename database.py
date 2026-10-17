@@ -104,6 +104,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             username VARCHAR(100) UNIQUE NOT NULL,
+            phone VARCHAR(20) UNIQUE,
             password VARCHAR(255) NOT NULL,
             display_name VARCHAR(100) NOT NULL,
             avatar_url TEXT NOT NULL,
@@ -111,6 +112,18 @@ def init_db():
             bio TEXT DEFAULT '',
             last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
+
+        CREATE TABLE IF NOT EXISTS friendships (
+            id SERIAL PRIMARY KEY,
+            sender_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            receiver_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            status VARCHAR(20) DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'declined')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(sender_id, receiver_id)
         );
 
         CREATE TABLE IF NOT EXISTS conversations (
@@ -173,6 +186,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
+            phone TEXT UNIQUE,
             password TEXT NOT NULL,
             display_name TEXT NOT NULL,
             avatar_url TEXT NOT NULL,
@@ -181,6 +195,19 @@ def init_db():
             last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS friendships (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id INTEGER NOT NULL,
+            receiver_id INTEGER NOT NULL,
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'declined')),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(sender_id, receiver_id),
+            FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS conversations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             type TEXT NOT NULL CHECK(type IN ('direct', 'group')),

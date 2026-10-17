@@ -22,6 +22,17 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 database.init_db()
 database.seed_db()
 
+# Helper to safely parse json string or dict (PostgreSQL vs SQLite)
+def parse_json_or_dict(val):
+    if not val:
+        return None
+    if isinstance(val, (dict, list)):
+        return val
+    try:
+        return json.loads(val)
+    except Exception:
+        return None
+
 # Helper to get current user ID
 def get_current_user_id():
     user_id = session.get("user_id")
@@ -31,10 +42,31 @@ def get_current_user_id():
             try:
                 user_id = int(req_user_id)
             except ValueError:
-                user_id = 1
-        else:
-            user_id = 1  # Default to Nguyễn Văn An
+                user_id = None
     return user_id
+
+# Helper to ensure 1-1 conversation exists
+def ensure_direct_conversation(conn, u1, u2):
+    existing = conn.execute("""
+        SELECT c.id FROM conversations c
+        JOIN participants p1 ON c.id = p1.conversation_id AND p1.user_id = ?
+        JOIN participants p2 ON c.id = p2.conversation_id AND p2.user_id = ?
+        WHERE c.type = 'direct'
+    """, (u1, u2)).fetchone()
+    
+    if existing:
+        return existing["id"]
+
+    cursor = conn.execute("INSERT INTO conversations (type, created_by) VALUES ('direct', ?)", (u1,))
+    conv_id = cursor.lastrowid
+    conn.execute("INSERT INTO participants (conversation_id, user_id, role) VALUES (?, ?, 'admin')", (conv_id, u1))
+    conn.execute("INSERT INTO participants (conversation_id, user_id, role) VALUES (?, ?, 'member')", (conv_id, u2))
+    conn.execute("""
+        INSERT INTO messages (conversation_id, sender_id, content, message_type)
+        VALUES (?, ?, 'Hai bạn đã kết nối thành công. Hãy bắt đầu trò chuyện nhé! 🎉', 'system')
+    """, (conv_id, u1))
+    conn.commit()
+    return conv_id
 
 # ----------------- WEB ROUTES -----------------
 @app.route("/")
@@ -46,39 +78,113 @@ def index():
 def health():
     return jsonify({"status": "ok", "service": "mini-chat"})
 
-# ----------------- AUTH & USER APIS -----------------
+# ----------------- AUTHENTICATION APIS -----------------
 @app.route("/api/me", methods=["GET"])
 def get_me():
     user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"authenticated": False}), 200
+        
     conn = database.get_db()
-    user = conn.execute("SELECT id, username, display_name, avatar_url, status, bio FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = conn.execute("SELECT id, username, phone, display_name, avatar_url, status, bio FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
     if user:
-        return jsonify(dict(user))
-    return jsonify({"error": "User not found"}), 404
+        res = dict(user)
+        res["authenticated"] = True
+        return jsonify(res)
+    return jsonify({"authenticated": False}), 200
 
-@app.route("/api/users", methods=["GET"])
-def get_users():
+@app.route("/api/auth/register", methods=["POST"])
+def auth_register():
+    data = request.get_json() or {}
+    username = data.get("username", "").strip().lower()
+    phone = data.get("phone", "").strip()
+    display_name = data.get("display_name", "").strip()
+    password = data.get("password", "").strip()
+
+    if not username or not display_name or not password:
+        return jsonify({"error": "Vui lòng nhập tên đăng nhập, họ tên và mật khẩu!"}), 400
+
     conn = database.get_db()
-    users = conn.execute("SELECT id, username, display_name, avatar_url, status, bio, last_seen FROM users ORDER BY display_name ASC").fetchall()
+    exist_user = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+    if exist_user:
+        conn.close()
+        return jsonify({"error": "Tên đăng nhập này đã được sử dụng!"}), 400
+
+    if phone:
+        exist_phone = conn.execute("SELECT id FROM users WHERE phone = ?", (phone,)).fetchone()
+        if exist_phone:
+            conn.close()
+            return jsonify({"error": "Số điện thoại này đã được đăng ký!"}), 400
+
+    avatar_url = data.get("avatar_url") or f"https://api.dicebear.com/7.x/bottts/svg?seed={username}&backgroundColor=b6e3f4,ffd5dc,c0aede"
+    
+    cur = conn.execute("""
+        INSERT INTO users (username, phone, password, display_name, avatar_url, status, bio)
+        VALUES (?, ?, ?, ?, ?, 'online', 'Thành viên mới tham gia!')
+    """, (username, phone or None, password, display_name, avatar_url))
+    user_id = cur.lastrowid
+    conn.commit()
+
+    user = conn.execute("SELECT id, username, phone, display_name, avatar_url, status, bio FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
-    return jsonify([dict(u) for u in users])
+
+    session["user_id"] = user_id
+    user_dict = dict(user)
+    user_dict["authenticated"] = True
+    return jsonify({"success": True, "user": user_dict})
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login():
+    data = request.get_json() or {}
+    login_id = data.get("login_id", "").strip().lower()
+    password = data.get("password", "").strip()
+
+    if not login_id or not password:
+        return jsonify({"error": "Vui lòng nhập Tên đăng nhập / Số điện thoại và Mật khẩu!"}), 400
+
+    conn = database.get_db()
+    user = conn.execute("""
+        SELECT id, username, phone, display_name, avatar_url, status, bio, password
+        FROM users
+        WHERE (LOWER(username) = ? OR phone = ?)
+    """, (login_id, login_id)).fetchone()
+    conn.close()
+
+    if not user or user["password"] != password:
+        return jsonify({"error": "Tài khoản hoặc mật khẩu không chính xác!"}), 400
+
+    session["user_id"] = user["id"]
+    user_dict = dict(user)
+    del user_dict["password"]
+    user_dict["authenticated"] = True
+    return jsonify({"success": True, "user": user_dict})
+
+@app.route("/api/auth/logout", methods=["POST"])
+def auth_logout():
+    session.clear()
+    return jsonify({"success": True})
 
 @app.route("/api/switch-user", methods=["POST"])
 def switch_user():
     data = request.get_json() or {}
     user_id = data.get("user_id")
     conn = database.get_db()
-    user = conn.execute("SELECT id, username, display_name, avatar_url, status, bio FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = conn.execute("SELECT id, username, phone, display_name, avatar_url, status, bio FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
     if user:
         session["user_id"] = user["id"]
-        return jsonify({"success": True, "user": dict(user)})
+        res = dict(user)
+        res["authenticated"] = True
+        return jsonify({"success": True, "user": res})
     return jsonify({"error": "User not found"}), 404
 
 @app.route("/api/status", methods=["POST"])
 def update_status():
     user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
     data = request.get_json() or {}
     status = data.get("status", "online")
     bio = data.get("bio")
@@ -94,12 +200,190 @@ def update_status():
     socketio.emit("user_status_changed", {"user_id": user_id, "status": status, "bio": bio})
     return jsonify({"success": True, "status": status})
 
+# ----------------- FRIEND MANAGEMENT APIS -----------------
+@app.route("/api/friends/search", methods=["GET"])
+def search_friends():
+    user_id = get_current_user_id()
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify([])
+
+    conn = database.get_db()
+    q_like = f"%{q}%"
+    users = conn.execute("""
+        SELECT id, username, phone, display_name, avatar_url, status, bio
+        FROM users
+        WHERE id != ? AND (phone = ? OR phone LIKE ? OR LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?)
+        LIMIT 20
+    """, (user_id or 0, q, q_like, q_like.lower(), q_like.lower())).fetchall()
+
+    results = []
+    for u in users:
+        item = dict(u)
+        if user_id:
+            f = conn.execute("""
+                SELECT id, sender_id, receiver_id, status
+                FROM friendships
+                WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+            """, (user_id, item["id"], item["id"], user_id)).fetchone()
+
+            if not f:
+                item["friendship_status"] = "none"
+                item["request_id"] = None
+            elif f["status"] == "accepted":
+                item["friendship_status"] = "accepted"
+                item["request_id"] = f["id"]
+            elif f["sender_id"] == user_id and f["status"] == "pending":
+                item["friendship_status"] = "pending_sent"
+                item["request_id"] = f["id"]
+            elif f["receiver_id"] == user_id and f["status"] == "pending":
+                item["friendship_status"] = "pending_received"
+                item["request_id"] = f["id"]
+            else:
+                item["friendship_status"] = "none"
+                item["request_id"] = None
+        else:
+            item["friendship_status"] = "none"
+            item["request_id"] = None
+
+        results.append(item)
+
+    conn.close()
+    return jsonify(results)
+
+@app.route("/api/friends/request", methods=["POST"])
+def send_friend_request():
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    target_user_id = data.get("target_user_id")
+    if not target_user_id or target_user_id == user_id:
+        return jsonify({"error": "Người dùng không hợp lệ"}), 400
+
+    conn = database.get_db()
+    exist = conn.execute("""
+        SELECT * FROM friendships
+        WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+    """, (user_id, target_user_id, target_user_id, user_id)).fetchone()
+
+    if exist:
+        if exist["status"] == "accepted":
+            conn.close()
+            return jsonify({"status": "accepted", "message": "Đã là bạn bè"})
+        if exist["sender_id"] == target_user_id and exist["status"] == "pending":
+            conn.execute("UPDATE friendships SET status = 'accepted', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (exist["id"],))
+            conn.commit()
+            conv_id = ensure_direct_conversation(conn, user_id, target_user_id)
+            conn.close()
+            socketio.emit("friend_request_accepted", {"user_id": user_id, "conversation_id": conv_id}, room=f"user_{target_user_id}")
+            return jsonify({"status": "accepted", "conversation_id": conv_id})
+        conn.close()
+        return jsonify({"status": exist["status"]})
+
+    cursor = conn.execute("""
+        INSERT INTO friendships (sender_id, receiver_id, status)
+        VALUES (?, ?, 'pending')
+    """, (user_id, target_user_id))
+    req_id = cursor.lastrowid
+    conn.commit()
+
+    sender = conn.execute("SELECT id, display_name, avatar_url, phone FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+
+    socketio.emit("friend_request_received", {
+        "request_id": req_id,
+        "sender": dict(sender)
+    }, room=f"user_{target_user_id}")
+
+    return jsonify({"status": "pending_sent", "request_id": req_id})
+
+@app.route("/api/friends/requests", methods=["GET"])
+def get_friend_requests():
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify([])
+
+    conn = database.get_db()
+    rows = conn.execute("""
+        SELECT f.id as request_id, f.created_at,
+               u.id as user_id, u.display_name, u.avatar_url, u.phone, u.bio, u.status
+        FROM friendships f
+        JOIN users u ON f.sender_id = u.id
+        WHERE f.receiver_id = ? AND f.status = 'pending'
+        ORDER BY f.created_at DESC
+    """, (user_id,)).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/friends/respond", methods=["POST"])
+def respond_friend_request():
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    request_id = data.get("request_id")
+    action = data.get("action")  # 'accept' or 'decline'
+
+    conn = database.get_db()
+    req = conn.execute("SELECT * FROM friendships WHERE id = ? AND receiver_id = ?", (request_id, user_id)).fetchone()
+    if not req:
+        conn.close()
+        return jsonify({"error": "Lời mời không tồn tại hoặc đã xử lý"}), 404
+
+    sender_id = req["sender_id"]
+    if action == "accept":
+        conn.execute("UPDATE friendships SET status = 'accepted', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (request_id,))
+        conn.commit()
+        conv_id = ensure_direct_conversation(conn, user_id, sender_id)
+        conn.close()
+
+        socketio.emit("friend_request_accepted", {"user_id": user_id, "conversation_id": conv_id}, room=f"user_{sender_id}")
+        return jsonify({"success": True, "action": "accept", "conv_id": conv_id})
+    else:
+        conn.execute("DELETE FROM friendships WHERE id = ?", (request_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "action": "decline"})
+
+@app.route("/api/friends", methods=["GET"])
+def get_friends():
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify([])
+
+    conn = database.get_db()
+    query = """
+    SELECT u.id, u.username, u.phone, u.display_name, u.avatar_url, u.status, u.bio, u.last_seen
+    FROM users u
+    JOIN friendships f ON (
+        (f.sender_id = ? AND f.receiver_id = u.id) OR 
+        (f.receiver_id = ? AND f.sender_id = u.id)
+    )
+    WHERE f.status = 'accepted'
+    ORDER BY u.display_name ASC
+    """
+    rows = conn.execute(query, (user_id, user_id)).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/users", methods=["GET"])
+def get_users():
+    conn = database.get_db()
+    users = conn.execute("SELECT id, username, phone, display_name, avatar_url, status, bio, last_seen FROM users ORDER BY display_name ASC").fetchall()
+    conn.close()
+    return jsonify([dict(u) for u in users])
+
 # ----------------- CONVERSATION APIS -----------------
 @app.route("/api/conversations", methods=["GET"])
 def get_conversations():
     user_id = get_current_user_id()
-    conn = database.get_db()
+    if not user_id:
+        return jsonify([])
 
+    conn = database.get_db()
     query = """
     SELECT 
         c.id, c.type, c.name, c.avatar_url, c.created_at, c.updated_at,
@@ -133,10 +417,9 @@ def get_conversations():
 
     for row in rows:
         conv = dict(row)
-        conv["last_message"] = json.loads(conv["last_message_json"]) if conv["last_message_json"] else None
+        conv["last_message"] = parse_json_or_dict(conv["last_message_json"])
         del conv["last_message_json"]
 
-        # If direct conversation, get the other participant's name & avatar
         if conv["type"] == "direct":
             other = conn.execute("""
                 SELECT u.id, u.display_name, u.avatar_url, u.status, u.bio, u.last_seen
@@ -152,7 +435,6 @@ def get_conversations():
             else:
                 conv["other_user"] = None
         else:
-            # Group participants count
             cnt = conn.execute("SELECT COUNT(*) as cnt FROM participants WHERE conversation_id = ?", (conv["id"],)).fetchone()["cnt"]
             conv["members_count"] = cnt
             conv["status"] = "group"
@@ -165,6 +447,9 @@ def get_conversations():
 @app.route("/api/conversations", methods=["POST"])
 def create_conversation():
     user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
     data = request.get_json() or {}
     conv_type = data.get("type", "direct")
     member_ids = data.get("members", [])
@@ -178,24 +463,7 @@ def create_conversation():
             return jsonify({"error": "Member ID is required"}), 400
         other_id = member_ids[0]
         
-        # Check if 1-1 conversation already exists
-        existing = conn.execute("""
-            SELECT c.id FROM conversations c
-            JOIN participants p1 ON c.id = p1.conversation_id AND p1.user_id = ?
-            JOIN participants p2 ON c.id = p2.conversation_id AND p2.user_id = ?
-            WHERE c.type = 'direct'
-        """, (user_id, other_id)).fetchone()
-        
-        if existing:
-            conn.close()
-            return jsonify({"id": existing["id"], "existing": True})
-
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO conversations (type, created_by) VALUES ('direct', ?)", (user_id,))
-        conv_id = cursor.lastrowid
-        cursor.execute("INSERT INTO participants (conversation_id, user_id, role) VALUES (?, ?, 'admin')", (conv_id, user_id))
-        cursor.execute("INSERT INTO participants (conversation_id, user_id, role) VALUES (?, ?, 'member')", (conv_id, other_id))
-        conn.commit()
+        conv_id = ensure_direct_conversation(conn, user_id, other_id)
         conn.close()
         return jsonify({"id": conv_id, "type": "direct"})
     
@@ -209,15 +477,12 @@ def create_conversation():
         cursor.execute("INSERT INTO conversations (type, name, avatar_url, created_by) VALUES ('group', ?, ?, ?)", (name, avatar_url, user_id))
         conv_id = cursor.lastrowid
         
-        # Add creator
         cursor.execute("INSERT INTO participants (conversation_id, user_id, role) VALUES (?, ?, 'admin')", (conv_id, user_id))
         
-        # Add other members
         for mid in member_ids:
             if mid != user_id:
                 cursor.execute("INSERT INTO participants (conversation_id, user_id, role) VALUES (?, ?, 'member')", (conv_id, mid))
         
-        # Insert system greeting
         cursor.execute("""
             INSERT INTO messages (conversation_id, sender_id, content, message_type)
             VALUES (?, ?, ?, 'system')
@@ -234,15 +499,16 @@ def create_conversation():
 @app.route("/api/conversations/<int:conv_id>/messages", methods=["GET"])
 def get_messages(conv_id):
     user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
     conn = database.get_db()
 
-    # Check participation
     part = conn.execute("SELECT * FROM participants WHERE conversation_id = ? AND user_id = ?", (conv_id, user_id)).fetchone()
     if not part:
         conn.close()
         return jsonify({"error": "Not a participant"}), 403
 
-    # Update last read message
     last_msg = conn.execute("SELECT MAX(id) as max_id FROM messages WHERE conversation_id = ?", (conv_id,)).fetchone()
     if last_msg and last_msg["max_id"]:
         conn.execute("UPDATE participants SET last_read_message_id = ? WHERE conversation_id = ? AND user_id = ?", (last_msg["max_id"], conv_id, user_id))
@@ -272,7 +538,6 @@ def get_messages(conv_id):
     """
     rows = conn.execute(query, (conv_id,)).fetchall()
     
-    # Get reactions for all messages
     reactions_rows = conn.execute("""
         SELECT r.message_id, r.user_id, r.emoji, u.display_name
         FROM reactions r
@@ -287,7 +552,6 @@ def get_messages(conv_id):
             rx_map[mid] = []
         rx_map[mid].append({"user_id": r["user_id"], "emoji": r["emoji"], "display_name": r["display_name"]})
 
-    # Get pinned messages
     pinned_rows = conn.execute("""
         SELECT pm.message_id, m.content, m.sender_id, u.display_name as sender_name, pm.pinned_at
         FROM pinned_messages pm
@@ -297,7 +561,6 @@ def get_messages(conv_id):
     """, (conv_id,)).fetchall()
     pinned_list = [dict(p) for p in pinned_rows]
 
-    # Get conversation details & participants
     conv_info = conn.execute("SELECT id, type, name, avatar_url FROM conversations WHERE id = ?", (conv_id,)).fetchone()
     participants = conn.execute("""
         SELECT u.id, u.display_name, u.avatar_url, u.status, u.bio, p.role
@@ -309,7 +572,7 @@ def get_messages(conv_id):
     messages = []
     for r in rows:
         msg = dict(r)
-        msg["reply_to"] = json.loads(msg["reply_json"]) if msg["reply_json"] else None
+        msg["reply_to"] = parse_json_or_dict(msg["reply_json"])
         del msg["reply_json"]
         msg["reactions"] = rx_map.get(msg["id"], [])
         messages.append(msg)
@@ -325,6 +588,9 @@ def get_messages(conv_id):
 @app.route("/api/conversations/<int:conv_id>/messages", methods=["POST"])
 def send_message_rest(conv_id):
     user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
     data = request.get_json() or {}
     content = data.get("content", "").strip()
     message_type = data.get("message_type", "text")
@@ -344,13 +610,10 @@ def send_message_rest(conv_id):
     """, (conv_id, user_id, content, message_type, media_url, media_name, media_size, reply_to_id))
     msg_id = cursor.lastrowid
 
-    # Update conversation updated_at
     conn.execute("UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (conv_id,))
-    # Update last_read for sender
     conn.execute("UPDATE participants SET last_read_message_id = ? WHERE conversation_id = ? AND user_id = ?", (msg_id, conv_id, user_id))
     conn.commit()
 
-    # Fetch full message
     msg = conn.execute("""
         SELECT m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
                m.media_url, m.media_name, m.media_size, m.reply_to_id, m.is_recalled, m.created_at,
@@ -376,7 +639,6 @@ def send_message_rest(conv_id):
 
     conn.close()
 
-    # Broadcast via SocketIO
     socketio.emit("new_message", msg_dict, room=f"conv_{conv_id}")
     return jsonify(msg_dict)
 
@@ -393,7 +655,6 @@ def upload_file():
     file_path = os.path.join(app.config["UPLOAD_FOLDER"], unique_name)
     file.save(file_path)
 
-    # Determine type
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext in ["jpg", "jpeg", "png", "gif", "webp", "svg"]:
         ftype = "image"
@@ -420,6 +681,9 @@ def upload_file():
 @app.route("/api/messages/<int:msg_id>/react", methods=["POST"])
 def react_message(msg_id):
     user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
     data = request.get_json() or {}
     emoji = data.get("emoji")
     if not emoji:
@@ -431,22 +695,18 @@ def react_message(msg_id):
         conn.close()
         return jsonify({"error": "Message not found"}), 404
 
-    # Check if user already reacted with this emoji (toggle)
     existing = conn.execute("SELECT * FROM reactions WHERE message_id = ? AND user_id = ?", (msg_id, user_id)).fetchone()
     if existing and existing["emoji"] == emoji:
         conn.execute("DELETE FROM reactions WHERE message_id = ? AND user_id = ?", (msg_id, user_id))
-        action = "removed"
     else:
         conn.execute("""
             INSERT INTO reactions (message_id, user_id, emoji)
             VALUES (?, ?, ?)
             ON CONFLICT(message_id, user_id) DO UPDATE SET emoji = excluded.emoji
         """, (msg_id, user_id, emoji))
-        action = "added"
     
     conn.commit()
 
-    # Get updated reactions
     reactions_rows = conn.execute("""
         SELECT r.message_id, r.user_id, r.emoji, u.display_name
         FROM reactions r
@@ -466,6 +726,9 @@ def react_message(msg_id):
 @app.route("/api/messages/<int:msg_id>/recall", methods=["POST"])
 def recall_message(msg_id):
     user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
     conn = database.get_db()
     msg = conn.execute("SELECT * FROM messages WHERE id = ?", (msg_id,)).fetchone()
     if not msg:
@@ -489,9 +752,10 @@ def recall_message(msg_id):
 @app.route("/api/conversations/<int:conv_id>/pin/<int:msg_id>", methods=["POST"])
 def pin_message(conv_id, msg_id):
     user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
     conn = database.get_db()
-    
-    # Toggle pin
     existing = conn.execute("SELECT * FROM pinned_messages WHERE conversation_id = ? AND message_id = ?", (conv_id, msg_id)).fetchone()
     if existing:
         conn.execute("DELETE FROM pinned_messages WHERE conversation_id = ? AND message_id = ?", (conv_id, msg_id))
@@ -525,8 +789,7 @@ def on_join(data):
     user_id = data.get("user_id")
     conv_id = data.get("conversation_id")
     if conv_id:
-        room = f"conv_{conv_id}"
-        join_room(room)
+        join_room(f"conv_{conv_id}")
     if user_id:
         join_room(f"user_{user_id}")
 
@@ -534,8 +797,7 @@ def on_join(data):
 def on_leave(data):
     conv_id = data.get("conversation_id")
     if conv_id:
-        room = f"conv_{conv_id}"
-        leave_room(room)
+        leave_room(f"conv_{conv_id}")
 
 @socketio.on("typing")
 def on_typing(data):
@@ -554,7 +816,6 @@ def on_stop_typing(data):
 
 @socketio.on("call_signal")
 def on_call_signal(data):
-    # Relays WebRTC signaling / call state (offer, answer, ice-candidate, end-call, start-call)
     conv_id = data.get("conversation_id")
     target_user_id = data.get("target_user_id")
     if target_user_id:

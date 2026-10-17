@@ -16,11 +16,80 @@
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body class="theme-light">
+    <!-- AUTH OVERLAY (HIỂN THỊ KHI CHƯA ĐĂNG NHẬP) -->
+    <div class="auth-overlay" id="auth-overlay" style="display:none;">
+        <div class="auth-card">
+            <div class="auth-brand">
+                <div class="auth-logo-circle">
+                    <i class="fa-solid fa-comments"></i>
+                </div>
+                <h2>Zalo Messenger Web</h2>
+                <p>Nền tảng nhắn tin thời gian thực đa năng</p>
+            </div>
+
+            <!-- Auth Tabs -->
+            <div class="auth-tabs">
+                <button class="auth-tab-btn active" id="tab-btn-login">Đăng nhập</button>
+                <button class="auth-tab-btn" id="tab-btn-register">Đăng ký tài khoản</button>
+            </div>
+
+            <!-- Login Form -->
+            <form id="login-form" class="auth-form" onsubmit="return false;">
+                <div class="form-group">
+                    <label><i class="fa-solid fa-user"></i> Tên đăng nhập hoặc Số điện thoại:</label>
+                    <input type="text" id="login-id" class="input-control" placeholder="Ví dụ: nguyenvana hoặc 0901234567" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label><i class="fa-solid fa-lock"></i> Mật khẩu:</label>
+                    <input type="password" id="login-password" class="input-control" placeholder="Nhập mật khẩu của bạn" required autocomplete="current-password">
+                </div>
+                <div id="login-error-msg" class="auth-error" style="display:none;"></div>
+                <button type="submit" class="btn btn-primary btn-block" id="btn-submit-login">
+                    <i class="fa-solid fa-right-to-bracket"></i> Đăng nhập ngay
+                </button>
+
+                <div class="auth-quick-demo">
+                    <span class="auth-divider">hoặc thử nhanh tài khoản có sẵn:</span>
+                    <div class="demo-user-chips">
+                        <button type="button" class="demo-chip" onclick="window.app.fillLogin('0901234567', '123456')">👨 An (0901234567)</button>
+                        <button type="button" class="demo-chip" onclick="window.app.fillLogin('0912345678', '123456')">👩 Mai (0912345678)</button>
+                        <button type="button" class="demo-chip" onclick="window.app.fillLogin('0987654321', '123456')">👨 Bảo (0987654321)</button>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Register Form -->
+            <form id="register-form" class="auth-form" style="display:none;" onsubmit="return false;">
+                <div class="form-group">
+                    <label><i class="fa-solid fa-signature"></i> Họ và tên hiển thị:</label>
+                    <input type="text" id="reg-display-name" class="input-control" placeholder="Ví dụ: Nguyễn Hoàng Nam" required>
+                </div>
+                <div class="form-group">
+                    <label><i class="fa-solid fa-at"></i> Tên đăng nhập (username):</label>
+                    <input type="text" id="reg-username" class="input-control" placeholder="Viết liền không dấu, ví dụ: hoangnam" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label><i class="fa-solid fa-phone"></i> Số điện thoại:</label>
+                    <input type="tel" id="reg-phone" class="input-control" placeholder="Ví dụ: 0988776655 (dùng để bạn bè tìm thấy bạn)" required>
+                </div>
+                <div class="form-group">
+                    <label><i class="fa-solid fa-lock"></i> Mật khẩu:</label>
+                    <input type="password" id="reg-password" class="input-control" placeholder="Tối thiểu 6 ký tự" required autocomplete="new-password">
+                </div>
+                <div id="reg-error-msg" class="auth-error" style="display:none;"></div>
+                <button type="submit" class="btn btn-primary btn-block" id="btn-submit-register">
+                    <i class="fa-solid fa-user-plus"></i> Hoàn tất đăng ký
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- MAIN APP LAYOUT (HIỂN THỊ KHI ĐÃ ĐĂNG NHẬP) -->
     <div id="app" class="app-layout">
         <!-- 1. NAVIGATION BAR (FAR LEFT) -->
         <aside class="nav-sidebar">
             <div class="nav-top">
-                <div class="user-avatar-wrap" id="user-avatar-btn" title="Hồ sơ cá nhân & Đổi tài khoản">
+                <div class="user-avatar-wrap" id="user-avatar-btn" title="Hồ sơ cá nhân">
                     <img id="my-avatar" src="" alt="Avatar" class="avatar-circle">
                     <span class="status-indicator online" id="my-status-dot"></span>
                 </div>
@@ -30,8 +99,12 @@
                         <i class="fa-solid fa-comment-dots"></i>
                         <span class="unread-badge-global" id="global-unread-badge" style="display:none;">0</span>
                     </button>
-                    <button class="nav-btn" data-tab="contacts" title="Danh bạ">
+                    <button class="nav-btn" data-tab="contacts" title="Danh bạ & Lời mời kết bạn">
                         <i class="fa-solid fa-address-book"></i>
+                        <span class="unread-badge-global" id="friend-req-badge" style="display:none; background:#0084ff;">0</span>
+                    </button>
+                    <button class="nav-btn" id="btn-nav-add-friend" title="Tìm bạn bằng Số Điện Thoại / Tên">
+                        <i class="fa-solid fa-user-plus"></i>
                     </button>
                     <button class="nav-btn" data-action="new-group" title="Tạo nhóm chat">
                         <i class="fa-solid fa-users-viewfinder"></i>
@@ -43,11 +116,11 @@
                 <button class="nav-btn" id="theme-toggle-btn" title="Đổi giao diện Sáng / Tối">
                     <i class="fa-solid fa-moon"></i>
                 </button>
-                <button class="nav-btn" id="switch-account-btn" title="Đổi tài khoản demo">
-                    <i class="fa-solid fa-user-group"></i>
-                </button>
                 <button class="nav-btn" id="audio-toggle-btn" title="Bật/Tắt âm thanh thông báo">
                     <i class="fa-solid fa-volume-high"></i>
+                </button>
+                <button class="nav-btn" id="btn-logout" title="Đăng xuất">
+                    <i class="fa-solid fa-arrow-right-from-bracket"></i>
                 </button>
             </div>
         </aside>
@@ -62,7 +135,7 @@
                     <button id="clear-search-btn" class="clear-btn" style="display:none;"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="header-actions">
-                    <button class="icon-btn" id="btn-quick-new-chat" title="Tin nhắn mới">
+                    <button class="icon-btn" id="btn-quick-add-friend" title="Kết bạn qua SĐT / Tên">
                         <i class="fa-solid fa-user-plus"></i>
                     </button>
                     <button class="icon-btn" id="btn-quick-new-group" title="Tạo nhóm mới">
@@ -87,7 +160,17 @@
 
             <!-- Contacts Tab Content (Initially hidden) -->
             <div class="contacts-container" id="contacts-container" style="display:none;">
-                <div class="contacts-category-title">BẠN BÈ TRỰC TUYẾN</div>
+                <!-- Friend Requests Section -->
+                <div class="friend-requests-section" id="friend-requests-section" style="display:none;">
+                    <div class="contacts-category-title" style="color:var(--primary); display:flex; justify-content:space-between; align-items:center;">
+                        <span><i class="fa-solid fa-user-clock"></i> LỜI MỜI KẾT BẠN (<span id="req-count-num">0</span>)</span>
+                    </div>
+                    <div class="friend-requests-list" id="friend-requests-list">
+                        <!-- Pending requests dynamically populated here -->
+                    </div>
+                </div>
+
+                <div class="contacts-category-title">BẠN BÈ CỦA BẠN</div>
                 <div class="contacts-list" id="contacts-list">
                     <!-- Dynamic contact items rendered here -->
                 </div>
@@ -104,10 +187,10 @@
                     </div>
                 </div>
                 <h2>Chào mừng bạn đến với Zalo Messenger Web!</h2>
-                <p>Chọn một cuộc trò chuyện từ danh sách bên trái hoặc bắt đầu trò chuyện mới để gửi tin nhắn, gọi thoại & chia sẻ hình ảnh.</p>
+                <p>Tìm bạn bè bằng số điện thoại, gửi lời mời kết bạn hoặc chọn cuộc trò chuyện để bắt đầu nhắn tin thời gian thực.</p>
                 <div class="empty-quick-actions">
-                    <button class="btn btn-primary" id="btn-empty-new-chat">
-                        <i class="fa-solid fa-paper-plane"></i> Nhắn tin mới
+                    <button class="btn btn-primary" id="btn-empty-add-friend">
+                        <i class="fa-solid fa-user-plus"></i> Tìm & Kết bạn qua SĐT
                     </button>
                     <button class="btn btn-secondary" id="btn-empty-new-group">
                         <i class="fa-solid fa-users"></i> Tạo nhóm chat
@@ -276,17 +359,25 @@
 
     <!-- 5. MODALS & OVERLAYS -->
 
-    <!-- Switch User Modal -->
-    <div class="modal-overlay" id="modal-switch-user" style="display:none;">
+    <!-- ADD FRIEND BY PHONE / USERNAME MODAL -->
+    <div class="modal-overlay" id="modal-add-friend" style="display:none;">
         <div class="modal-card">
             <div class="modal-header">
-                <h3><i class="fa-solid fa-users"></i> Chuyển đổi tài khoản Demo</h3>
-                <button class="modal-close-btn" data-modal="modal-switch-user">&times;</button>
+                <h3><i class="fa-solid fa-user-plus"></i> Tìm bạn & Kết bạn</h3>
+                <button class="modal-close-btn" data-modal="modal-add-friend">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="modal-subtitle">Chọn người dùng để trải nghiệm tính năng nhắn tin qua lại thời gian thực:</p>
-                <div class="user-picker-list" id="user-picker-list">
-                    <!-- Populated dynamically -->
+                <p class="modal-subtitle">Nhập Số điện thoại hoặc Tên đăng nhập của người bạn muốn kết bạn:</p>
+                <div class="search-box" style="margin-bottom:16px;">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" id="friend-search-input" placeholder="Ví dụ: 0901234567 hoặc lethimai...">
+                    <button id="btn-do-search-friend" class="btn btn-primary" style="padding:4px 12px; font-size:12px;">Tìm</button>
+                </div>
+
+                <div class="friend-search-results" id="friend-search-results">
+                    <div style="text-align:center; padding:20px; color:var(--text-muted); font-size:13px;">
+                        Nhập số điện thoại hoặc tên và bấm Tìm kiếm
+                    </div>
                 </div>
             </div>
         </div>
@@ -305,7 +396,7 @@
                     <input type="text" id="new-group-name" placeholder="Ví dụ: Team Dự án 2026, Bạn Thân..." class="input-control">
                 </div>
                 <div class="form-group">
-                    <label>Chọn thành viên vào nhóm:</label>
+                    <label>Chọn bạn bè vào nhóm:</label>
                     <div class="group-members-checklist" id="group-members-checklist">
                         <!-- Dynamic checkboxes -->
                     </div>
@@ -314,22 +405,6 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-modal="modal-create-group">Hủy</button>
                 <button class="btn btn-primary" id="btn-confirm-create-group">Tạo nhóm ngay</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- New Direct Chat Modal -->
-    <div class="modal-overlay" id="modal-new-chat" style="display:none;">
-        <div class="modal-card">
-            <div class="modal-header">
-                <h3><i class="fa-solid fa-user-plus"></i> Bắt đầu trò chuyện</h3>
-                <button class="modal-close-btn" data-modal="modal-new-chat">&times;</button>
-            </div>
-            <div class="modal-body">
-                <p class="modal-subtitle">Chọn bạn bè để mở cuộc trò chuyện:</p>
-                <div class="new-chat-friends-list" id="new-chat-friends-list">
-                    <!-- Dynamic friends -->
-                </div>
             </div>
         </div>
     </div>
@@ -356,7 +431,6 @@
             </div>
 
             <div class="call-video-container" id="call-video-container">
-                <!-- Remote Video / Avatar Screen -->
                 <div class="remote-screen" id="remote-screen">
                     <img id="call-remote-avatar" src="" alt="Remote" class="call-big-avatar">
                     <h3 id="call-remote-name" class="call-name">--</h3>
@@ -364,14 +438,12 @@
                     <video id="remote-video-feed" autoplay playsinline style="display:none;"></video>
                 </div>
 
-                <!-- Local Picture-in-Picture Video -->
                 <div class="local-screen" id="local-screen" style="display:none;">
                     <video id="local-video-feed" autoplay playsinline muted></video>
                     <span class="local-label">Bạn</span>
                 </div>
             </div>
 
-            <!-- Call Control Bar -->
             <div class="call-controls">
                 <button class="call-btn btn-mic" id="btn-call-mic" title="Bật/Tắt Micro">
                     <i class="fa-solid fa-microphone"></i>

@@ -1933,3 +1933,243 @@ body.theme-dark .conv-item.active {
         color: var(--text-secondary);
     }
 }
+
+/* ==========================================================================
+   Authentication Overlay & Forms
+   ========================================================================== */
+.auth-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(circle at 50% 30%, rgba(0, 104, 255, 0.15) 0%, rgba(15, 23, 42, 0.85) 100%);
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5000;
+    animation: fadeIn 0.3s ease;
+}
+
+.auth-card {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-xl);
+    width: 92%;
+    max-width: 440px;
+    padding: 32px 28px;
+    animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.auth-brand {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.auth-logo-circle {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--primary-gradient);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    margin: 0 auto 12px auto;
+    box-shadow: 0 8px 20px rgba(0, 104, 255, 0.35);
+}
+
+.auth-brand h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.auth-brand p {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+}
+
+.auth-tabs {
+    display: flex;
+    background-color: var(--bg-muted);
+    border-radius: var(--radius-full);
+    padding: 4px;
+    margin-bottom: 20px;
+    gap: 4px;
+}
+
+.auth-tab-btn {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: var(--radius-full);
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-align: center;
+    transition: var(--transition-fast);
+}
+
+.auth-tab-btn.active {
+    background-color: var(--bg-surface);
+    color: var(--primary);
+    box-shadow: var(--shadow-sm);
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.auth-error {
+    background-color: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+    padding: 8px 12px;
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.btn-block {
+    width: 100%;
+    justify-content: center;
+    padding: 11px 16px;
+    font-size: 15px;
+    margin-top: 4px;
+}
+
+.auth-quick-demo {
+    margin-top: 16px;
+    text-align: center;
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 14px;
+}
+
+.auth-divider {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: block;
+    margin-bottom: 8px;
+}
+
+.demo-user-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+}
+
+.demo-chip {
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    background-color: var(--bg-muted);
+    border: 1px solid var(--border-color);
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.demo-chip:hover {
+    background-color: var(--primary-light);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+/* ==========================================================================
+   Friend Requests & Friend Search Cards
+   ========================================================================== */
+.friend-requests-section {
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 12px;
+    margin-bottom: 8px;
+}
+
+.friend-requests-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 12px;
+}
+
+.friend-req-card {
+    background-color: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: var(--shadow-sm);
+}
+
+.friend-req-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.friend-req-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.friend-req-name {
+    font-size: 13.5px;
+    font-weight: 600;
+}
+
+.friend-req-phone {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+}
+
+.friend-req-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.friend-search-results {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 350px;
+    overflow-y: auto;
+}
+
+.friend-search-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    background-color: var(--bg-muted);
+    border: 1px solid var(--border-color);
+    transition: var(--transition-fast);
+}
+
+.friend-search-card:hover {
+    background-color: var(--bg-hover);
+}
+
+.friend-search-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.friend-search-name {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.friend-search-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+}

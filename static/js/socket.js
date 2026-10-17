@@ -65,6 +65,18 @@ class ChatSocket {
             }
         });
 
+        this.socket.on("friend_request_received", (data) => {
+            if (window.app) {
+                window.app.handleFriendRequestReceived(data);
+            }
+        });
+
+        this.socket.on("friend_request_accepted", (data) => {
+            if (window.app) {
+                window.app.handleFriendRequestAccepted(data);
+            }
+        });
+
         this.socket.on("call_signal", (data) => {
             if (window.callManager) {
                 window.callManager.handleSignal(data);

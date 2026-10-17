@@ -1,8 +1,10 @@
-// Zalo & Messenger Web - Main Frontend Application
+// Zalo & Messenger Web - Main Frontend Application with Authentication & Friends
 class ChatApp {
     constructor() {
         this.currentUser = null;
         this.allUsers = [];
+        this.friends = [];
+        this.friendRequests = [];
         this.conversations = [];
         this.activeConv = null;
         this.activeFilter = "all"; // 'all', 'unread', 'group'
@@ -12,19 +14,34 @@ class ChatApp {
         this.audioChunks = [];
         this.searchQuery = "";
 
-        // UI elements
         this.initDOMElements();
         this.initEmojiPicker();
         this.initEventListeners();
     }
 
     initDOMElements() {
+        // Auth elements
+        this.authOverlay = document.getElementById("auth-overlay");
+        this.tabBtnLogin = document.getElementById("tab-btn-login");
+        this.tabBtnRegister = document.getElementById("tab-btn-register");
+        this.loginForm = document.getElementById("login-form");
+        this.registerForm = document.getElementById("register-form");
+        this.loginErrorMsg = document.getElementById("login-error-msg");
+        this.regErrorMsg = document.getElementById("reg-error-msg");
+        this.loginIdInput = document.getElementById("login-id");
+        this.loginPasswordInput = document.getElementById("login-password");
+        this.regDisplayNameInput = document.getElementById("reg-display-name");
+        this.regUsernameInput = document.getElementById("reg-username");
+        this.regPhoneInput = document.getElementById("reg-phone");
+        this.regPasswordInput = document.getElementById("reg-password");
+        this.btnLogout = document.getElementById("btn-logout");
+
         // Nav elements
         this.myAvatar = document.getElementById("my-avatar");
         this.myStatusDot = document.getElementById("my-status-dot");
         this.globalUnreadBadge = document.getElementById("global-unread-badge");
+        this.friendReqBadge = document.getElementById("friend-req-badge");
         this.themeToggleBtn = document.getElementById("theme-toggle-btn");
-        this.switchAccountBtn = document.getElementById("switch-account-btn");
         this.audioToggleBtn = document.getElementById("audio-toggle-btn");
 
         // Sidebar
@@ -34,6 +51,15 @@ class ChatApp {
         this.contactsContainer = document.getElementById("contacts-container");
         this.convListContainer = document.getElementById("conv-list-container");
         this.contactsList = document.getElementById("contacts-list");
+        this.friendRequestsSection = document.getElementById("friend-requests-section");
+        this.friendRequestsList = document.getElementById("friend-requests-list");
+        this.reqCountNum = document.getElementById("req-count-num");
+
+        // Friend search modal
+        this.modalAddFriend = document.getElementById("modal-add-friend");
+        this.friendSearchInput = document.getElementById("friend-search-input");
+        this.btnDoSearchFriend = document.getElementById("btn-do-search-friend");
+        this.friendSearchResults = document.getElementById("friend-search-results");
 
         // Main Chat
         this.chatMain = document.getElementById("chat-main");
@@ -76,76 +102,338 @@ class ChatApp {
         this.infoMediaGallery = document.getElementById("info-media-gallery");
 
         // Modals
-        this.modalSwitchUser = document.getElementById("modal-switch-user");
         this.modalCreateGroup = document.getElementById("modal-create-group");
-        this.modalNewChat = document.getElementById("modal-new-chat");
         this.imageLightbox = document.getElementById("image-lightbox");
         this.lightboxImg = document.getElementById("lightbox-img");
         this.lightboxDownloadLink = document.getElementById("lightbox-download-link");
     }
 
     async init() {
-        // Load theme preference
         const savedTheme = localStorage.getItem("chat_theme") || "theme-light";
         document.body.className = savedTheme;
         this.updateThemeIcon(savedTheme);
 
-        await this.loadCurrentUser();
-        await this.loadUsers();
-        await this.loadConversations();
-
-        // Connect socket
-        window.chatSocket.connect(this.currentUser.id);
-
-        // Open first conversation by default if available
-        if (this.conversations.length > 0) {
-            this.selectConversation(this.conversations[0].id);
-        }
+        await this.checkAuth();
     }
 
-    // ---------------- AUTH & USER ----------------
-    async loadCurrentUser() {
+    // ---------------- AUTHENTICATION ----------------
+    async checkAuth() {
         try {
             const res = await fetch("/api/me");
-            this.currentUser = await res.json();
-            this.myAvatar.src = this.currentUser.avatar_url;
-            this.myStatusDot.className = `status-indicator ${this.currentUser.status || 'online'}`;
+            const data = await res.json();
+            if (data && data.authenticated && data.id) {
+                this.currentUser = data;
+                this.authOverlay.style.display = "none";
+                this.onAuthSuccess();
+            } else {
+                this.authOverlay.style.display = "flex";
+            }
         } catch (err) {
-            console.error("Failed to load current user:", err);
+            console.error("Auth check failed:", err);
+            this.authOverlay.style.display = "flex";
         }
     }
 
-    async loadUsers() {
-        try {
-            const res = await fetch("/api/users");
-            this.allUsers = await res.json();
-            this.renderContactsList();
-        } catch (err) {
-            console.error("Failed to load users:", err);
-        }
-    }
+    async handleLogin() {
+        const loginId = this.loginIdInput.value.trim();
+        const password = this.loginPasswordInput.value.trim();
+        this.loginErrorMsg.style.display = "none";
 
-    async switchUser(userId) {
+        if (!loginId || !password) {
+            this.showLoginError("Vui lòng nhập Tên đăng nhập / Số điện thoại và Mật khẩu!");
+            return;
+        }
+
         try {
-            const res = await fetch("/api/switch-user", {
+            const res = await fetch("/api/auth/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ user_id: userId })
+                body: JSON.stringify({ login_id: loginId, password })
+            });
+            const data = await res.json();
+            if (data.error) {
+                this.showLoginError(data.error);
+            } else if (data.success && data.user) {
+                this.currentUser = data.user;
+                this.authOverlay.style.display = "none";
+                this.onAuthSuccess();
+            }
+        } catch (err) {
+            this.showLoginError("Đăng nhập thất bại. Vui lòng thử lại!");
+        }
+    }
+
+    async handleRegister() {
+        const displayName = this.regDisplayNameInput.value.trim();
+        const username = this.regUsernameInput.value.trim();
+        const phone = this.regPhoneInput.value.trim();
+        const password = this.regPasswordInput.value.trim();
+        this.regErrorMsg.style.display = "none";
+
+        if (!displayName || !username || !password) {
+            this.showRegError("Vui lòng nhập đầy đủ các trường thông tin!");
+            return;
+        }
+
+        try {
+            const res = await fetch("/api/auth/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    display_name: displayName,
+                    username,
+                    phone,
+                    password
+                })
+            });
+            const data = await res.json();
+            if (data.error) {
+                this.showRegError(data.error);
+            } else if (data.success && data.user) {
+                this.currentUser = data.user;
+                this.authOverlay.style.display = "none";
+                this.onAuthSuccess();
+            }
+        } catch (err) {
+            this.showRegError("Đăng ký thất bại. Vui lòng kiểm tra lại thông tin!");
+        }
+    }
+
+    async handleLogout() {
+        if (!confirm("Bạn có chắc chắn muốn đăng xuất không?")) return;
+        try {
+            await fetch("/api/auth/logout", { method: "POST" });
+            this.currentUser = null;
+            this.activeConv = null;
+            this.conversations = [];
+            this.friends = [];
+            this.friendRequests = [];
+            this.chatActiveContainer.style.display = "none";
+            this.chatEmptyState.style.display = "flex";
+            this.authOverlay.style.display = "flex";
+        } catch (err) {
+            location.reload();
+        }
+    }
+
+    fillLogin(loginId, pass) {
+        this.loginIdInput.value = loginId;
+        this.loginPasswordInput.value = pass;
+        this.handleLogin();
+    }
+
+    showLoginError(msg) {
+        this.loginErrorMsg.textContent = msg;
+        this.loginErrorMsg.style.display = "block";
+    }
+
+    showRegError(msg) {
+        this.regErrorMsg.textContent = msg;
+        this.regErrorMsg.style.display = "block";
+    }
+
+    async onAuthSuccess() {
+        this.myAvatar.src = this.currentUser.avatar_url;
+        this.myStatusDot.className = `status-indicator ${this.currentUser.status || 'online'}`;
+        
+        window.chatSocket.connect(this.currentUser.id);
+
+        await this.loadConversations();
+        await this.loadFriends();
+        await this.loadFriendRequests();
+
+        if (this.conversations.length > 0) {
+            this.selectConversation(this.conversations[0].id);
+        } else {
+            this.chatEmptyState.style.display = "flex";
+            this.chatActiveContainer.style.display = "none";
+        }
+    }
+
+    // ---------------- FRIEND MANAGEMENT ----------------
+    async searchFriends() {
+        const q = this.friendSearchInput.value.trim();
+        if (!q) {
+            this.friendSearchResults.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:13px;">Vui lòng nhập số điện thoại hoặc tên</div>`;
+            return;
+        }
+
+        this.friendSearchResults.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:13px;"><i class="fa-solid fa-spinner fa-spin"></i> Đang tìm kiếm...</div>`;
+
+        try {
+            const res = await fetch(`/api/friends/search?q=${encodeURIComponent(q)}`);
+            const users = await res.json();
+
+            if (users.length === 0) {
+                this.friendSearchResults.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:13px;">Không tìm thấy người dùng nào với số điện thoại hoặc tên này</div>`;
+                return;
+            }
+
+            this.friendSearchResults.innerHTML = users.map(u => {
+                let actionBtnHTML = "";
+                if (u.friendship_status === "accepted") {
+                    actionBtnHTML = `<button class="btn btn-secondary" onclick="window.app.startDirectChatWith(${u.id}); window.app.closeModal(window.app.modalAddFriend);"><i class="fa-solid fa-comment"></i> Nhắn tin</button>`;
+                } else if (u.friendship_status === "pending_sent") {
+                    actionBtnHTML = `<button class="btn btn-secondary" disabled style="opacity:0.7;"><i class="fa-solid fa-clock"></i> Đã gửi lời mời</button>`;
+                } else if (u.friendship_status === "pending_received") {
+                    actionBtnHTML = `<button class="btn btn-primary" onclick="window.app.respondFriendRequest(${u.request_id}, 'accept')"><i class="fa-solid fa-check"></i> Chấp nhận</button>`;
+                } else {
+                    actionBtnHTML = `<button class="btn btn-primary" onclick="window.app.sendFriendRequest(${u.id})"><i class="fa-solid fa-user-plus"></i> Kết bạn</button>`;
+                }
+
+                return `
+                    <div class="friend-search-card">
+                        <img src="${u.avatar_url}" alt="${u.display_name}" class="avatar-circle">
+                        <div class="friend-search-info">
+                            <div class="friend-search-name">${this.escapeHTML(u.display_name)}</div>
+                            <div class="friend-search-sub"><i class="fa-solid fa-phone"></i> ${this.escapeHTML(u.phone || 'Chưa có SĐT')} • @${this.escapeHTML(u.username)}</div>
+                        </div>
+                        <div class="friend-search-actions">
+                            ${actionBtnHTML}
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        } catch (err) {
+            console.error("Failed to search friends:", err);
+            this.friendSearchResults.innerHTML = `<div style="text-align:center; padding:20px; color:red; font-size:13px;">Lỗi tìm kiếm. Vui lòng thử lại!</div>`;
+        }
+    }
+
+    async sendFriendRequest(targetUserId) {
+        try {
+            const res = await fetch("/api/friends/request", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ target_user_id: targetUserId })
+            });
+            const data = await res.json();
+            if (data.status === "accepted") {
+                alert("Hai bạn đã là bạn bè!");
+                await this.loadConversations();
+                await this.loadFriends();
+                if (data.conversation_id) this.selectConversation(data.conversation_id);
+                this.closeModal(this.modalAddFriend);
+            } else {
+                alert("Đã gửi lời mời kết bạn thành công!");
+                this.searchFriends();
+            }
+        } catch (err) {
+            alert("Gửi lời mời thất bại: " + err);
+        }
+    }
+
+    async loadFriendRequests() {
+        if (!this.currentUser) return;
+        try {
+            const res = await fetch("/api/friends/requests");
+            this.friendRequests = await res.json();
+            this.renderFriendRequests();
+        } catch (err) {
+            console.error("Failed to load friend requests:", err);
+        }
+    }
+
+    renderFriendRequests() {
+        const count = this.friendRequests.length;
+        if (count > 0) {
+            this.friendRequestsSection.style.display = "block";
+            this.reqCountNum.textContent = count;
+            this.friendReqBadge.textContent = count;
+            this.friendReqBadge.style.display = "flex";
+
+            this.friendRequestsList.innerHTML = this.friendRequests.map(req => `
+                <div class="friend-req-card" id="req-card-${req.request_id}">
+                    <div class="friend-req-top">
+                        <img src="${req.avatar_url}" alt="${req.display_name}" class="avatar-circle-sm">
+                        <div class="friend-req-info">
+                            <div class="friend-req-name">${this.escapeHTML(req.display_name)}</div>
+                            <div class="friend-req-phone"><i class="fa-solid fa-phone"></i> ${this.escapeHTML(req.phone || '')}</div>
+                        </div>
+                    </div>
+                    <div class="friend-req-actions">
+                        <button class="btn btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="window.app.respondFriendRequest(${req.request_id}, 'decline')">Từ chối</button>
+                        <button class="btn btn-primary" style="padding:4px 12px; font-size:12px;" onclick="window.app.respondFriendRequest(${req.request_id}, 'accept')"><i class="fa-solid fa-check"></i> Đồng ý</button>
+                    </div>
+                </div>
+            `).join("");
+        } else {
+            this.friendRequestsSection.style.display = "none";
+            this.friendReqBadge.style.display = "none";
+        }
+    }
+
+    async respondFriendRequest(requestId, action) {
+        try {
+            const res = await fetch("/api/friends/respond", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ request_id: requestId, action })
             });
             const data = await res.json();
             if (data.success) {
-                this.currentUser = data.user;
-                this.myAvatar.src = this.currentUser.avatar_url;
-                this.myStatusDot.className = `status-indicator ${this.currentUser.status || 'online'}`;
-                window.chatSocket.connect(this.currentUser.id);
-                this.closeModal(this.modalSwitchUser);
+                await this.loadFriendRequests();
+                await this.loadFriends();
                 await this.loadConversations();
-                if (this.conversations.length > 0) {
-                    this.selectConversation(this.conversations[0].id);
+                if (action === "accept" && data.conv_id) {
+                    this.selectConversation(data.conv_id);
+                    this.switchNavTab("messages");
                 }
             }
         } catch (err) {
-            console.error("Failed to switch user:", err);
+            console.error("Failed to respond to friend request:", err);
+        }
+    }
+
+    async loadFriends() {
+        if (!this.currentUser) return;
+        try {
+            const res = await fetch("/api/friends");
+            this.friends = await res.json();
+            this.renderFriendsList();
+        } catch (err) {
+            console.error("Failed to load friends:", err);
+        }
+    }
+
+    renderFriendsList() {
+        if (this.friends.length === 0) {
+            this.contactsList.innerHTML = `
+                <div style="text-align:center; padding:30px 16px; color:var(--text-muted); font-size:13px;">
+                    Bạn chưa có bạn bè nào.<br>
+                    <button class="btn btn-primary" style="margin-top:10px; padding:6px 14px; font-size:12px;" onclick="window.app.openAddFriendModal()">
+                        <i class="fa-solid fa-user-plus"></i> Tìm bạn qua SĐT
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        this.contactsList.innerHTML = this.friends.map(u => `
+            <div class="contact-item" onclick="window.app.startDirectChatWith(${u.id})">
+                <div class="conv-avatar-box">
+                    <img src="${u.avatar_url}" alt="${u.display_name}" class="avatar-circle">
+                    <span class="status-indicator ${u.status || 'offline'}"></span>
+                </div>
+                <div class="contact-info">
+                    <div class="contact-name">${this.escapeHTML(u.display_name)}</div>
+                    <div class="contact-bio"><i class="fa-solid fa-phone"></i> ${this.escapeHTML(u.phone || 'Chưa cập nhật')}</div>
+                </div>
+            </div>
+        `).join("");
+    }
+
+    handleFriendRequestReceived(data) {
+        window.soundManager.playReceived();
+        this.loadFriendRequests();
+    }
+
+    handleFriendRequestAccepted(data) {
+        window.soundManager.playReceived();
+        this.loadFriends();
+        this.loadConversations();
+        if (data.conversation_id) {
+            this.selectConversation(data.conversation_id);
         }
     }
 
@@ -220,12 +508,10 @@ class ChatApp {
             this.activeConv = data;
             window.chatSocket.joinConversation(convId);
 
-            // Update UI
             this.chatEmptyState.style.display = "none";
             this.chatActiveContainer.style.display = "flex";
             this.chatMain.classList.add("mobile-active");
 
-            // Update Header
             const conv = data.conversation;
             let title = conv.name;
             let avatar = conv.avatar_url;
@@ -252,17 +538,11 @@ class ChatApp {
             this.chatHeaderStatusDot.className = `status-indicator ${statusDotClass}`;
             this.chatHeaderStatusText.textContent = statusText;
 
-            // Pinned Messages Banner
             this.renderPinnedBanner(data.pinned);
-
-            // Render Messages
             this.renderMessages(data.messages);
             this.scrollToBottom();
-
-            // Populate Info Sidebar
             this.populateInfoSidebar();
 
-            // Highlight conversation in list
             document.querySelectorAll(".conv-item").forEach(el => {
                 el.classList.toggle("active", el.dataset.id == convId);
                 if (el.dataset.id == convId) {
@@ -272,7 +552,6 @@ class ChatApp {
                 }
             });
 
-            // Update local unread counter in conversation object
             const localC = this.conversations.find(c => c.id === convId);
             if (localC) localC.unread_count = 0;
             this.updateGlobalUnreadBadge();
@@ -340,7 +619,6 @@ class ChatApp {
         if (msg.is_recalled) {
             contentHTML = `<span class="msg-recalled"><i class="fa-solid fa-clock-rotate-left"></i> ${this.escapeHTML(msg.content)}</span>`;
         } else {
-            // Check reply quote
             let replyQuoteHTML = "";
             if (msg.reply_to) {
                 replyQuoteHTML = `
@@ -351,7 +629,6 @@ class ChatApp {
                 `;
             }
 
-            // Check media type
             let mediaHTML = "";
             if (msg.message_type === "image" && msg.media_url) {
                 mediaHTML = `<img src="${msg.media_url}" alt="Ảnh" class="msg-media-img" onclick="window.app.openLightbox('${msg.media_url}')">`;
@@ -393,9 +670,7 @@ class ChatApp {
             `;
         }
 
-        // Reactions badges HTML
         const reactionsHTML = this.renderReactionsBadges(msg.reactions);
-
         const timeStr = this.formatTimeOnly(msg.created_at);
 
         row.innerHTML = `
@@ -406,7 +681,6 @@ class ChatApp {
                     ${contentHTML}
                     ${reactionsHTML}
                     
-                    <!-- Hover Action Toolbar -->
                     <div class="msg-actions-toolbar">
                         <button class="action-tool-btn" title="Thả tim" onclick="window.app.reactMessage(${msg.id}, '❤️')">❤️</button>
                         <button class="action-tool-btn" title="Thích" onclick="window.app.reactMessage(${msg.id}, '👍')">👍</button>
@@ -429,7 +703,6 @@ class ChatApp {
 
     renderReactionsBadges(reactions) {
         if (!reactions || reactions.length === 0) return "";
-        // Group by emoji
         const counts = {};
         reactions.forEach(r => {
             counts[r.emoji] = (counts[r.emoji] || 0) + 1;
@@ -460,12 +733,11 @@ class ChatApp {
         window.chatSocket.stopTyping(this.currentUser);
 
         try {
-            const res = await fetch(`/api/conversations/${convId}/messages`, {
+            await fetch(`/api/conversations/${convId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             });
-            const msg = await res.json();
             window.soundManager.playSent();
         } catch (err) {
             console.error("Failed to send message:", err);
@@ -512,7 +784,6 @@ class ChatApp {
         }
     }
 
-    // ---------------- VOICE RECORDING SIMULATION ----------------
     async toggleVoiceRecording() {
         if (this.isRecordingVoice) {
             this.stopVoiceRecording();
@@ -547,8 +818,6 @@ class ChatApp {
             this.isRecordingVoice = true;
             this.btnVoiceRecord.classList.add("recording");
         } catch (err) {
-            console.log("Mic access not granted, using simulated voice clip demo");
-            // Simulate voice sending
             this.isRecordingVoice = true;
             this.btnVoiceRecord.classList.add("recording");
             setTimeout(() => {
@@ -561,7 +830,6 @@ class ChatApp {
         if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
             this.mediaRecorder.stop();
         } else {
-            // Simulated voice note
             if (this.activeConv) {
                 const convId = this.activeConv.conversation.id;
                 fetch(`/api/conversations/${convId}/messages`, {
@@ -649,7 +917,6 @@ class ChatApp {
 
     // ---------------- REALTIME EVENT DISPATCH ----------------
     handleIncomingMessage(msg) {
-        // If current active conversation, append message
         if (this.activeConv && this.activeConv.conversation.id === msg.conversation_id) {
             this.activeConv.messages.push(msg);
             const row = this.createMessageElement(msg);
@@ -660,7 +927,6 @@ class ChatApp {
                 window.soundManager.playReceived();
             }
         } else {
-            // Unread in another conversation
             const conv = this.conversations.find(c => c.id === msg.conversation_id);
             if (conv) {
                 conv.unread_count = (conv.unread_count || 0) + 1;
@@ -668,6 +934,8 @@ class ChatApp {
                 this.renderConversations();
                 this.updateGlobalUnreadBadge();
                 window.soundManager.playReceived();
+            } else {
+                this.loadConversations();
             }
         }
     }
@@ -724,12 +992,12 @@ class ChatApp {
     }
 
     handleUserStatusChanged(data) {
-        const user = this.allUsers.find(u => u.id === data.user_id);
+        const user = this.friends.find(u => u.id === data.user_id);
         if (user) {
             user.status = data.status;
             if (data.bio) user.bio = data.bio;
         }
-        this.renderContactsList();
+        this.renderFriendsList();
     }
 
     // ---------------- INFO SIDEBAR & MEDIA GALLERY ----------------
@@ -752,7 +1020,6 @@ class ChatApp {
             </div>
         `).join("");
 
-        // Populate media gallery with sent images
         const images = this.activeConv.messages.filter(m => m.message_type === "image" && m.media_url);
         if (images.length === 0) {
             this.infoMediaGallery.innerHTML = `<span style="grid-column: span 3; font-size:12px; color:var(--text-muted); text-align:center; padding:10px 0;">Chưa có ảnh nào</span>`;
@@ -761,24 +1028,6 @@ class ChatApp {
                 <img src="${img.media_url}" alt="Ảnh" class="media-gallery-thumb" onclick="window.app.openLightbox('${img.media_url}')">
             `).join("");
         }
-    }
-
-    // ---------------- CONTACTS & MODALS ----------------
-    renderContactsList() {
-        this.contactsList.innerHTML = this.allUsers
-            .filter(u => u.id !== this.currentUser?.id)
-            .map(u => `
-                <div class="contact-item" onclick="window.app.startDirectChatWith(${u.id})">
-                    <div class="conv-avatar-box">
-                        <img src="${u.avatar_url}" alt="${u.display_name}" class="avatar-circle">
-                        <span class="status-indicator ${u.status || 'offline'}"></span>
-                    </div>
-                    <div class="contact-info">
-                        <div class="contact-name">${this.escapeHTML(u.display_name)}</div>
-                        <div class="contact-bio">${this.escapeHTML(u.bio || 'Chưa cập nhật tiểu sử')}</div>
-                    </div>
-                </div>
-            `).join("");
     }
 
     async startDirectChatWith(userId) {
@@ -792,7 +1041,6 @@ class ChatApp {
             if (data.id) {
                 await this.loadConversations();
                 this.selectConversation(data.id);
-                // switch to messages tab
                 this.switchNavTab("messages");
             }
         } catch (err) {
@@ -800,31 +1048,25 @@ class ChatApp {
         }
     }
 
-    openSwitchUserModal() {
-        const container = document.getElementById("user-picker-list");
-        container.innerHTML = this.allUsers.map(u => `
-            <div class="user-select-row ${u.id === this.currentUser?.id ? 'current-active' : ''}" onclick="window.app.switchUser(${u.id})">
-                <img src="${u.avatar_url}" alt="${u.display_name}" class="avatar-circle">
-                <div class="user-select-info">
-                    <div class="user-select-name">${this.escapeHTML(u.display_name)} ${u.id === this.currentUser?.id ? '(Hiện tại)' : ''}</div>
-                    <div class="user-select-bio">${this.escapeHTML(u.bio || '')}</div>
-                </div>
-            </div>
-        `).join("");
-        this.openModal(this.modalSwitchUser);
+    openAddFriendModal() {
+        this.friendSearchInput.value = "";
+        this.friendSearchResults.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:13px;">Nhập số điện thoại hoặc tên và bấm Tìm kiếm</div>`;
+        this.openModal(this.modalAddFriend);
     }
 
     openCreateGroupModal() {
         const checklist = document.getElementById("group-members-checklist");
-        checklist.innerHTML = this.allUsers
-            .filter(u => u.id !== this.currentUser?.id)
-            .map(u => `
+        if (this.friends.length === 0) {
+            checklist.innerHTML = `<div style="text-align:center; padding:15px; color:var(--text-muted); font-size:13px;">Bạn chưa có bạn bè để thêm vào nhóm. Hãy kết bạn trước nhé!</div>`;
+        } else {
+            checklist.innerHTML = this.friends.map(u => `
                 <label class="user-select-row" style="cursor:pointer;">
                     <input type="checkbox" value="${u.id}" class="group-member-checkbox" style="width:18px; height:18px; accent-color:var(--primary); margin-right:8px;">
                     <img src="${u.avatar_url}" alt="${u.display_name}" class="avatar-circle-sm">
                     <span style="font-size:14px; font-weight:500;">${this.escapeHTML(u.display_name)}</span>
                 </label>
             `).join("");
+        }
         this.openModal(this.modalCreateGroup);
     }
 
@@ -839,7 +1081,7 @@ class ChatApp {
         const checkedBoxes = document.querySelectorAll(".group-member-checkbox:checked");
         const members = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
         if (members.length === 0) {
-            alert("Vui lòng chọn ít nhất 1 thành viên vào nhóm!");
+            alert("Vui lòng chọn ít nhất 1 bạn bè vào nhóm!");
             return;
         }
 
@@ -859,22 +1101,6 @@ class ChatApp {
         } catch (err) {
             console.error("Failed to create group:", err);
         }
-    }
-
-    openNewChatModal() {
-        const container = document.getElementById("new-chat-friends-list");
-        container.innerHTML = this.allUsers
-            .filter(u => u.id !== this.currentUser?.id)
-            .map(u => `
-                <div class="user-select-row" onclick="window.app.startDirectChatWith(${u.id}); window.app.closeModal(window.app.modalNewChat);">
-                    <img src="${u.avatar_url}" alt="${u.display_name}" class="avatar-circle">
-                    <div class="user-select-info">
-                        <div class="user-select-name">${this.escapeHTML(u.display_name)}</div>
-                        <div class="user-select-bio">${this.escapeHTML(u.bio || '')}</div>
-                    </div>
-                </div>
-            `).join("");
-        this.openModal(this.modalNewChat);
     }
 
     openLightbox(url) {
@@ -904,7 +1130,6 @@ class ChatApp {
             fun: ["🎉", "🎊", "🎈", "🎂", "🎁", "🎆", "🎇", "✨", "🔥", "⭐", "🌟", "💫", "🏆", "🥇", "🥈", "🥉", "🍕", "🍔", "🍟", "🧋", "☕", "🍺", "🥂"]
         };
 
-        const grid = document.getElementById("emoji-grid");
         this.renderEmojiCategory("smileys");
 
         document.querySelectorAll(".emoji-cat-btn").forEach(btn => {
@@ -931,21 +1156,57 @@ class ChatApp {
 
     // ---------------- EVENT LISTENERS ----------------
     initEventListeners() {
+        // Auth form toggles
+        this.tabBtnLogin.addEventListener("click", () => {
+            this.tabBtnLogin.classList.add("active");
+            this.tabBtnRegister.classList.remove("active");
+            this.loginForm.style.display = "flex";
+            this.registerForm.style.display = "none";
+        });
+
+        this.tabBtnRegister.addEventListener("click", () => {
+            this.tabBtnRegister.classList.add("active");
+            this.tabBtnLogin.classList.remove("active");
+            this.registerForm.style.display = "flex";
+            this.loginForm.style.display = "none";
+        });
+
+        // Auth submit
+        document.getElementById("btn-submit-login").addEventListener("click", () => this.handleLogin());
+        this.loginForm.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") this.handleLogin();
+        });
+
+        document.getElementById("btn-submit-register").addEventListener("click", () => this.handleRegister());
+        this.registerForm.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") this.handleRegister();
+        });
+
+        this.btnLogout.addEventListener("click", () => this.handleLogout());
+
+        // Add friend actions
+        document.querySelectorAll("#btn-nav-add-friend, #btn-quick-add-friend, #btn-empty-add-friend").forEach(el => {
+            el.addEventListener("click", () => this.openAddFriendModal());
+        });
+        this.btnDoSearchFriend.addEventListener("click", () => this.searchFriends());
+        this.friendSearchInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") this.searchFriends();
+        });
+
         // Send message
         this.btnSendMessage.addEventListener("click", () => this.sendMessage());
         this.messageInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 this.sendMessage();
-            } else {
+            } else if (this.currentUser) {
                 window.chatSocket.sendTyping(this.currentUser);
             }
         });
 
-        // Cancel Reply
         this.btnCancelReply.addEventListener("click", () => this.cancelReply());
 
-        // File inputs
+        // File uploads
         this.imageFileInput.addEventListener("change", (e) => {
             if (e.target.files[0]) {
                 this.handleFileUpload(e.target.files[0]);
@@ -959,7 +1220,6 @@ class ChatApp {
             }
         });
 
-        // Voice record
         this.btnVoiceRecord.addEventListener("click", () => this.toggleVoiceRecording());
 
         // Emoji Toggle
@@ -1020,21 +1280,14 @@ class ChatApp {
             });
         });
 
-        // Quick action buttons
         document.querySelectorAll("[data-action='new-group'], #btn-quick-new-group, #btn-empty-new-group").forEach(el => {
             el.addEventListener("click", () => this.openCreateGroupModal());
         });
-        document.getElementById("btn-quick-new-chat").addEventListener("click", () => this.openNewChatModal());
-        document.getElementById("btn-empty-new-chat").addEventListener("click", () => this.openNewChatModal());
-        document.getElementById("switch-account-btn").addEventListener("click", () => this.openSwitchUserModal());
-        document.getElementById("user-avatar-btn").addEventListener("click", () => this.openSwitchUserModal());
 
-        // Create group confirmation
         document.getElementById("btn-confirm-create-group").addEventListener("click", () => this.confirmCreateGroup());
 
-        // Modal close buttons
         document.querySelectorAll(".modal-close-btn, [data-modal]").forEach(btn => {
-            btn.addEventListener("click", (e) => {
+            btn.addEventListener("click", () => {
                 const modalId = btn.getAttribute("data-modal");
                 if (modalId) {
                     const m = document.getElementById(modalId);
@@ -1043,13 +1296,11 @@ class ChatApp {
             });
         });
 
-        // Lightbox close
         document.getElementById("btn-close-lightbox").addEventListener("click", () => this.closeLightbox());
         this.imageLightbox.addEventListener("click", (e) => {
             if (e.target === this.imageLightbox) this.closeLightbox();
         });
 
-        // Conversation Info Sidebar toggle
         this.btnToggleInfo.addEventListener("click", () => {
             this.chatInfoSidebar.classList.toggle("open");
         });
@@ -1057,12 +1308,11 @@ class ChatApp {
             this.chatInfoSidebar.classList.remove("open");
         });
 
-        // Mobile back button
         document.getElementById("btn-back-to-list").addEventListener("click", () => {
             this.chatMain.classList.remove("mobile-active");
         });
 
-        // Call buttons
+        // Calls
         document.getElementById("btn-call-audio").addEventListener("click", () => {
             if (!this.activeConv) return;
             const other = this.activeConv.conversation.type === "direct" 
@@ -1090,6 +1340,8 @@ class ChatApp {
         } else if (tab === "contacts") {
             this.convListContainer.style.display = "none";
             this.contactsContainer.style.display = "block";
+            this.loadFriends();
+            this.loadFriendRequests();
         }
     }
 
@@ -1116,10 +1368,6 @@ class ChatApp {
     formatRelativeTime(dateStr) {
         if (!dateStr) return "";
         const d = new Date(dateStr.replace(" ", "T") + "Z");
-        const now = new Date();
-        const diffMs = now - d;
-        const diffMins = Math.floor(diffMs / 60000);
-        
         const h = d.getHours().toString().padStart(2, "0");
         const m = d.getMinutes().toString().padStart(2, "0");
         return `${h}:${m}`;
@@ -1154,7 +1402,6 @@ class ChatApp {
     }
 }
 
-// Initialize on DOMContentLoaded
 document.addEventListener("DOMContentLoaded", () => {
     window.app = new ChatApp();
     window.app.init();
