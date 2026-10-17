@@ -1178,6 +1178,14 @@ body.theme-dark .conv-item.active {
     box-shadow: 0 -1px 4px rgba(0,0,0,0.02);
 }
 
+.input-main-row {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    min-width: 0;
+}
+
 .input-actions-left, .input-actions-right {
     display: flex;
     align-items: center;
@@ -2367,3 +2375,283 @@ body.theme-dark .conv-item.active {
     flex-direction: column;
     width: 100%;
 }
+
+/* ==================== RESPONSIVE MOBILE LAYOUT (<= 768px) ==================== */
+@media (max-width: 768px) {
+    /* 1. App Layout */
+    .app-layout {
+        flex-direction: column-reverse;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+        position: relative;
+    }
+
+    /* 2. Navigation Sidebar as Native App Bottom Bar when in list view */
+    .sidebar {
+        width: 100%;
+        height: 56px;
+        flex-direction: row;
+        justify-content: space-around;
+        align-items: center;
+        padding: 4px 12px;
+        border-right: none;
+        border-top: 1px solid var(--border-color);
+        background-color: var(--sidebar-bg);
+        flex-shrink: 0;
+        z-index: 30;
+    }
+
+    .sidebar-top {
+        flex-direction: row;
+        gap: 20px;
+        align-items: center;
+    }
+
+    .sidebar-bottom {
+        flex-direction: row;
+        gap: 16px;
+        align-items: center;
+        border-top: none;
+        padding-top: 0;
+    }
+
+    .sidebar-secondary {
+        width: 100%;
+        flex: 1;
+        height: calc(100% - 56px);
+        border-right: none;
+    }
+
+    /* 3. Chat Main Viewport */
+    .chat-main {
+        display: none;
+    }
+
+    /* When user opens a conversation */
+    body.mobile-chat-open .sidebar,
+    .chat-main.mobile-active ~ .sidebar {
+        display: none !important;
+    }
+
+    body.mobile-chat-open .sidebar-secondary {
+        display: none !important;
+    }
+
+    body.mobile-chat-open .chat-main,
+    .chat-main.mobile-active {
+        display: flex !important;
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        z-index: 50;
+        background-color: var(--bg-base);
+    }
+
+    /* 4. Chat Header */
+    .chat-header {
+        height: 56px;
+        padding: 0 10px;
+        gap: 8px;
+    }
+
+    .mobile-only {
+        display: flex !important;
+    }
+
+    .back-btn {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        color: var(--text-primary);
+        background: transparent;
+        cursor: pointer;
+        flex-shrink: 0;
+        border: none;
+        transition: var(--transition-fast);
+    }
+
+    .back-btn:active {
+        background-color: var(--bg-hover);
+    }
+
+    .chat-header-left {
+        gap: 8px;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .chat-header-avatar, .avatar-circle {
+        width: 38px;
+        height: 38px;
+    }
+
+    .conv-title {
+        font-size: 15px;
+        font-weight: 700;
+        max-width: 140px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .conv-status-text {
+        font-size: 11px;
+    }
+
+    .chat-header-actions {
+        gap: 4px;
+        flex-shrink: 0;
+    }
+
+    .header-action-btn {
+        width: 34px;
+        height: 34px;
+        font-size: 14px;
+    }
+
+    /* 5. Messages stream on mobile */
+    .messages-viewport {
+        padding: 12px 10px;
+    }
+
+    .msg-row {
+        max-width: 86%;
+    }
+
+    .msg-bubble {
+        padding: 9px 13px;
+        font-size: 14.5px;
+        line-height: 1.45;
+    }
+
+    .msg-media-img {
+        max-width: 76vw;
+        max-height: 220px;
+    }
+
+    /* 6. CHAT INPUT AREA - SPATIOUS, READABLE & FULL-WIDTH FOR PHONE */
+    .chat-input-area {
+        padding: 6px 10px calc(8px + env(safe-area-inset-bottom, 0px)) 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        align-items: stretch;
+        background-color: var(--bg-surface);
+        border-top: 1px solid var(--border-color);
+        box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    /* Row 1: Actions Toolbar */
+    .input-actions-left {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        width: 100%;
+        margin-bottom: 0;
+        padding: 2px 4px 6px 4px;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .input-actions-left .action-icon-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background-color: var(--bg-muted);
+        color: var(--text-secondary);
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        border: 1px solid var(--border-color);
+        transition: var(--transition-fast);
+    }
+
+    .input-actions-left .action-icon-btn:active {
+        background-color: var(--primary-light);
+        color: var(--primary);
+        transform: scale(0.95);
+    }
+
+    /* Row 2: Large Text Input + Send Button */
+    .input-main-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .input-editor-wrap {
+        flex: 1;
+        min-width: 0;
+        background-color: var(--bg-muted);
+        border-radius: 20px;
+        padding: 8px 14px;
+        border: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+    }
+
+    .input-editor-wrap:focus-within {
+        border-color: var(--primary);
+        background-color: var(--bg-surface);
+        box-shadow: 0 0 0 2px rgba(0, 104, 255, 0.15);
+    }
+
+    .input-editor-wrap textarea {
+        width: 100%;
+        font-size: 15.5px;
+        min-height: 24px;
+        max-height: 120px;
+        line-height: 1.45;
+        padding: 0;
+    }
+
+    .input-editor-wrap textarea::placeholder {
+        font-size: 14px;
+    }
+
+    .send-btn {
+        width: 42px;
+        height: 42px;
+        min-width: 42px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        flex-shrink: 0;
+    }
+
+    /* Emoji Picker on Mobile */
+    .emoji-picker-popup {
+        position: fixed;
+        left: 8px;
+        right: 8px;
+        bottom: 110px;
+        width: auto;
+        max-width: none;
+        z-index: 100;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+    }
+
+    /* Modals on mobile */
+    .modal-content, .profile-card-modal {
+        width: 95vw !important;
+        max-width: 95vw !important;
+        border-radius: var(--radius-lg);
+    }
+
+    .profile-body-content {
+        max-height: 55vh;
+    }
+}
+

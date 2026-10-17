@@ -553,6 +553,7 @@ class ChatApp {
             this.chatEmptyState.style.display = "none";
             this.chatActiveContainer.style.display = "flex";
             this.chatMain.classList.add("mobile-active");
+            document.body.classList.add("mobile-chat-open");
 
             const conv = data.conversation;
             let title = conv.name;
@@ -1526,6 +1527,10 @@ class ChatApp {
 
         // Send message
         this.btnSendMessage.addEventListener("click", () => this.sendMessage());
+        this.messageInput.addEventListener("input", () => {
+            this.messageInput.style.height = "auto";
+            this.messageInput.style.height = Math.min(this.messageInput.scrollHeight, 120) + "px";
+        });
         this.messageInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -1641,6 +1646,7 @@ class ChatApp {
 
         document.getElementById("btn-back-to-list").addEventListener("click", () => {
             this.chatMain.classList.remove("mobile-active");
+            document.body.classList.remove("mobile-chat-open");
         });
 
         // Calls
