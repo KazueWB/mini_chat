@@ -91,9 +91,14 @@ def get_db():
 
     # SQLite fallback
     db_path = os.path.join(os.path.dirname(__file__), "chat.db")
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=10.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+    except Exception:
+        pass
     return conn
 
 def init_db():
@@ -179,6 +184,14 @@ def init_db():
             UNIQUE(conversation_id, message_id)
         );
         ALTER TABLE participants ADD COLUMN IF NOT EXISTS nickname VARCHAR(100) DEFAULT '';
+
+        CREATE INDEX IF NOT EXISTS idx_messages_conv_id ON messages(conversation_id, id);
+        CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
+        CREATE INDEX IF NOT EXISTS idx_participants_user ON participants(user_id);
+        CREATE INDEX IF NOT EXISTS idx_participants_conv ON participants(conversation_id);
+        CREATE INDEX IF NOT EXISTS idx_reactions_msg ON reactions(message_id);
+        CREATE INDEX IF NOT EXISTS idx_pinned_conv ON pinned_messages(conversation_id);
+        CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(sender_id, receiver_id, status);
         """)
         conn.commit()
         conn.close()
@@ -269,6 +282,14 @@ def init_db():
             FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
             FOREIGN KEY (pinned_by) REFERENCES users(id)
         );
+
+        CREATE INDEX IF NOT EXISTS idx_messages_conv_id ON messages(conversation_id, id);
+        CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
+        CREATE INDEX IF NOT EXISTS idx_participants_user ON participants(user_id);
+        CREATE INDEX IF NOT EXISTS idx_participants_conv ON participants(conversation_id);
+        CREATE INDEX IF NOT EXISTS idx_reactions_msg ON reactions(message_id);
+        CREATE INDEX IF NOT EXISTS idx_pinned_conv ON pinned_messages(conversation_id);
+        CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(sender_id, receiver_id, status);
         """)
         try:
             cursor.execute("ALTER TABLE participants ADD COLUMN nickname TEXT DEFAULT ''")

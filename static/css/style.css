@@ -3218,4 +3218,41 @@ body.theme-dark .conv-item.active {
     background: rgba(239, 68, 68, 0.08);
 }
 
+/* ==========================================================================
+   Smooth Shimmer Skeleton & Optimistic UI Styles
+   ========================================================================== */
+.msg-skeleton-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 14px;
+    animation: fadeIn 0.15s ease;
+}
+
+.msg-skeleton-row.outgoing {
+    justify-content: flex-end;
+}
+
+.msg-skeleton-bubble {
+    border-radius: var(--radius-lg);
+    background: linear-gradient(90deg, var(--bg-hover) 25%, var(--bg-surface-elevated) 50%, var(--bg-hover) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+    height: 38px;
+    border: 1px solid var(--border-subtle);
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.msg-row.msg-pending .msg-bubble {
+    opacity: 0.88;
+}
+
+.msg-row.msg-failed .msg-bubble {
+    border: 1px solid #ef4444 !important;
+}
+
+
 

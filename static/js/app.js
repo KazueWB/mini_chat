@@ -7,6 +7,8 @@ class ChatApp {
         this.friendRequests = [];
         this.conversations = [];
         this.activeConv = null;
+        this.convCache = new Map();
+        this.currentSelectedConvId = null;
         this.activeFilter = "all"; // 'all', 'unread', 'group'
         this.replyTarget = null;
         this.isRecordingVoice = false;
@@ -574,83 +576,122 @@ class ChatApp {
         });
     }
 
+    renderSkeletonMessages() {
+        this.messagesStream.innerHTML = `
+            <div class="msg-skeleton-row" style="width: 42%;">
+                <div class="msg-skeleton-bubble" style="width: 100%;"></div>
+            </div>
+            <div class="msg-skeleton-row outgoing" style="width: 52%; margin-left:auto;">
+                <div class="msg-skeleton-bubble" style="width: 100%;"></div>
+            </div>
+            <div class="msg-skeleton-row" style="width: 60%;">
+                <div class="msg-skeleton-bubble" style="width: 100%;"></div>
+            </div>
+            <div class="msg-skeleton-row outgoing" style="width: 38%; margin-left:auto;">
+                <div class="msg-skeleton-bubble" style="width: 100%;"></div>
+            </div>
+        `;
+    }
+
     async selectConversation(convId) {
-        try {
-            const res = await fetch(`/api/conversations/${convId}/messages`);
-            const data = await res.json();
-            if (data.error) return;
+        if (!convId) return;
+        this.currentSelectedConvId = convId;
 
-            this.activeConv = data;
-            window.chatSocket.joinConversation(convId);
+        // 1. Instant 0ms Visual Response on left sidebar
+        document.querySelectorAll(".conv-item").forEach(el => {
+            const isMatch = el.dataset.id == convId;
+            el.classList.toggle("active", isMatch);
+            if (isMatch) {
+                el.classList.remove("unread");
+                const badge = el.querySelector(".unread-badge");
+                if (badge) badge.remove();
+            }
+        });
 
+        const conv = this.conversations.find(c => c.id === convId);
+        if (conv) {
+            conv.unread_count = 0;
+            this.updateGlobalUnreadBadge();
+
+            // 2. Instant 0ms Header & Screen Transition
             this.chatEmptyState.style.display = "none";
             this.chatActiveContainer.style.display = "flex";
             this.chatMain.classList.add("mobile-active");
             document.body.classList.add("mobile-chat-open");
 
-            const conv = data.conversation;
-            let title = conv.name;
-            let avatar = conv.avatar_url;
+            this.chatHeaderName.textContent = conv.name || "--";
+            this.chatHeaderAvatar.src = conv.avatar_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${conv.id}`;
 
             if (conv.type === "direct") {
-                const other = data.participants.find(p => p.id !== this.currentUser.id);
-                if (other) {
-                    title = (other.nickname && other.nickname.trim()) ? other.nickname.trim() : other.display_name;
-                    avatar = other.avatar_url;
-                    this.updateChatHeaderStatus(other);
-                }
-            } else {
-                title = conv.name;
-                avatar = conv.avatar_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${conv.id}`;
-                this.chatHeaderStatusDot.className = "status-indicator group";
-                this.chatHeaderStatusText.textContent = `${data.participants.length} thành viên`;
-                this.chatHeaderStatusText.classList.remove("online");
-                this.chatHeaderStatusText.style.color = "var(--text-secondary)";
-            }
-
-            this.chatHeaderName.textContent = title;
-            this.chatHeaderAvatar.src = avatar;
-
-            if (conv.type === "direct") {
-                const other = data.participants.find(p => p.id !== this.currentUser.id);
+                const other = conv.other_user || {};
+                this.updateChatHeaderStatus(other);
                 this.chatHeaderAvatar.style.cursor = "pointer";
                 this.chatHeaderName.style.cursor = "pointer";
-                this.chatHeaderAvatar.title = "Bấm để xem trang cá nhân";
-                this.chatHeaderName.title = "Bấm để xem trang cá nhân";
                 this.chatHeaderAvatar.onclick = () => {
-                    if (other) this.openUserProfile(other.id);
+                    if (other.id) this.openUserProfile(other.id);
                 };
                 this.chatHeaderName.onclick = () => {
-                    if (other) this.openUserProfile(other.id);
+                    if (other.id) this.openUserProfile(other.id);
                 };
             } else {
+                this.chatHeaderStatusDot.className = "status-indicator group";
+                this.chatHeaderStatusText.textContent = `${conv.members_count || ''} thành viên`;
+                this.chatHeaderStatusText.classList.remove("online");
+                this.chatHeaderStatusText.style.color = "var(--text-secondary)";
                 this.chatHeaderAvatar.style.cursor = "default";
                 this.chatHeaderName.style.cursor = "default";
                 this.chatHeaderAvatar.onclick = null;
                 this.chatHeaderName.onclick = null;
             }
-
-            this.renderPinnedBanner(data.pinned);
-            this.renderMessages(data.messages);
-            this.scrollToBottom();
-            this.populateInfoSidebar();
-
-            document.querySelectorAll(".conv-item").forEach(el => {
-                el.classList.toggle("active", el.dataset.id == convId);
-                if (el.dataset.id == convId) {
-                    el.classList.remove("unread");
-                    const badge = el.querySelector(".unread-badge");
-                    if (badge) badge.remove();
-                }
-            });
-
-            const localC = this.conversations.find(c => c.id === convId);
-            if (localC) localC.unread_count = 0;
-            this.updateGlobalUnreadBadge();
-
-        } catch (err) {
-            console.error("Failed to load conversation:", err);
         }
+
+        // 3. Socket Room Switch
+        window.chatSocket.joinConversation(convId);
+
+        // 4. Memory Cache: If already cached, render immediately within 0ms!
+        if (this.convCache.has(convId)) {
+            const cachedData = this.convCache.get(convId);
+            this.applyConversationData(cachedData);
+        } else {
+            this.renderSkeletonMessages();
+        }
+
+        // 5. Stale-While-Revalidate: Background fetch to get latest messages/pins/info
+        try {
+            const res = await fetch(`/api/conversations/${convId}/messages`);
+            const data = await res.json();
+            if (data.error) return;
+
+            // Cache it
+            this.convCache.set(convId, data);
+
+            // Only apply if user is still on this conversation
+            if (this.currentSelectedConvId === convId) {
+                this.applyConversationData(data);
+            }
+        } catch (err) {
+            console.error("Failed to load conversation messages:", err);
+        }
+    }
+
+    applyConversationData(data) {
+        this.activeConv = data;
+
+        const conv = data.conversation;
+        if (conv.type === "direct") {
+            const other = data.participants.find(p => p.id !== this.currentUser.id);
+            if (other) {
+                const title = (other.nickname && other.nickname.trim()) ? other.nickname.trim() : other.display_name;
+                this.chatHeaderName.textContent = title;
+                this.chatHeaderAvatar.src = other.avatar_url;
+                this.updateChatHeaderStatus(other);
+            }
+        }
+
+        this.renderPinnedBanner(data.pinned);
+        this.renderMessages(data.messages);
+        this.scrollToBottom();
+        this.populateInfoSidebar();
     }
 
     renderPinnedBanner(pinnedList) {
@@ -696,7 +737,7 @@ class ChatApp {
         const isSystem = msg.message_type === "system";
 
         row.id = `msg-${msg.id}`;
-        row.className = `msg-row ${isSystem ? 'system' : (isMe ? 'outgoing' : 'incoming')}`;
+        row.className = `msg-row ${isSystem ? 'system' : (isMe ? 'outgoing' : 'incoming')} ${msg.is_pending ? 'msg-pending' : ''}`;
 
         if (isSystem) {
             row.innerHTML = `<div class="msg-system-bubble">${this.escapeHTML(msg.content)}</div>`;
@@ -809,7 +850,7 @@ class ChatApp {
                 </div>
                 <div class="msg-meta">
                     <span>${timeStr}</span>
-                    ${isMe ? `<span class="msg-status-tick"><i class="fa-solid fa-check-double"></i></span>` : ''}
+                    ${isMe ? `<span class="msg-status-tick">${msg.is_pending ? '<i class="fa-regular fa-clock" style="font-size:10px; opacity:0.65;" title="Đang gửi..."></i>' : '<i class="fa-solid fa-check-double"></i>'}</span>` : ''}
                 </div>
             </div>
         `;
@@ -833,34 +874,135 @@ class ChatApp {
 
     // ---------------- SENDING MESSAGES & UPLOADS ----------------
     async sendMessage() {
-        if (this.isSendingMessage) return;
         const text = this.messageInput.value.trim();
         if (!text || !this.activeConv) return;
 
-        this.isSendingMessage = true;
         const convId = this.activeConv.conversation.id;
+        const myPart = this.activeConv.participants?.find(p => p.id === this.currentUser.id);
+        const myName = (myPart && myPart.nickname && myPart.nickname.trim()) ? myPart.nickname.trim() : this.currentUser.display_name;
+
+        // 1. Generate temp optimistic message
+        const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+        const optimisticMsg = {
+            id: tempId,
+            conversation_id: convId,
+            sender_id: this.currentUser.id,
+            sender_name: myName,
+            sender_avatar: this.currentUser.avatar_url,
+            content: text,
+            message_type: "text",
+            media_url: null,
+            reply_to: this.replyTarget ? {
+                id: this.replyTarget.id,
+                content: this.replyTarget.content,
+                sender_name: this.replyTarget.sender_name
+            } : null,
+            reactions: [],
+            created_at: new Date().toISOString(),
+            is_pending: true
+        };
+
         const payload = {
             content: text,
             message_type: "text",
             reply_to_id: this.replyTarget ? this.replyTarget.id : null
         };
 
+        // 2. Clear input & reset state INSTANTLY (0ms)
         this.messageInput.value = "";
         this.messageInput.style.height = "auto";
         this.cancelReply();
         window.chatSocket.stopTyping(this.currentUser);
 
+        // 3. Play sound & render to DOM INSTANTLY (0ms)
+        window.soundManager.playSent();
+        if (!this.activeConv.messages) this.activeConv.messages = [];
+        this.activeConv.messages.push(optimisticMsg);
+        const row = this.createMessageElement(optimisticMsg);
+        this.messagesStream.appendChild(row);
+        this.scrollToBottom();
+
+        // 4. Update left sidebar conversation snippet INSTANTLY (0ms)
+        const localConv = this.conversations.find(c => c.id === convId);
+        if (localConv) {
+            localConv.last_message = optimisticMsg;
+            const idx = this.conversations.indexOf(localConv);
+            if (idx > 0) {
+                this.conversations.splice(idx, 1);
+                this.conversations.unshift(localConv);
+            }
+            this.renderConversations();
+        }
+
+        // 5. Send to server in background
         try {
-            await fetch(`/api/conversations/${convId}/messages`, {
+            const res = await fetch(`/api/conversations/${convId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             });
-            window.soundManager.playSent();
+            const realMsg = await res.json();
+            if (realMsg && realMsg.id) {
+                this.reconcileOptimisticMessage(tempId, realMsg);
+            }
         } catch (err) {
             console.error("Failed to send message:", err);
-        } finally {
-            this.isSendingMessage = false;
+            const el = document.getElementById(`msg-${tempId}`);
+            if (el) {
+                el.classList.add("msg-failed");
+                const tick = el.querySelector(".msg-status-tick");
+                if (tick) tick.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;" title="Gửi thất bại"></i>';
+            }
+        }
+    }
+
+    reconcileOptimisticMessage(tempId, realMsg) {
+        // Reconcile DOM element
+        const el = document.getElementById(`msg-${tempId}`);
+        if (el) {
+            el.id = `msg-${realMsg.id}`;
+            el.classList.remove("msg-pending");
+            const tick = el.querySelector(".msg-status-tick");
+            if (tick) tick.innerHTML = '<i class="fa-solid fa-check-double"></i>';
+
+            // Update action buttons with real ID
+            const actionBtns = el.querySelectorAll(".action-tool-btn");
+            if (actionBtns.length >= 6) {
+                actionBtns[0].onclick = () => window.app.reactMessage(realMsg.id, '❤️');
+                actionBtns[1].onclick = () => window.app.reactMessage(realMsg.id, '👍');
+                actionBtns[2].onclick = () => window.app.reactMessage(realMsg.id, '😂');
+                actionBtns[3].onclick = () => window.app.reactMessage(realMsg.id, '😮');
+                actionBtns[4].onclick = () => window.app.setReplyMessage(realMsg.id);
+                actionBtns[5].onclick = () => window.app.pinMessage(realMsg.id);
+                if (actionBtns[6]) actionBtns[6].onclick = () => window.app.recallMessage(realMsg.id);
+            }
+        }
+
+        // Reconcile memory array
+        if (this.activeConv && this.activeConv.messages) {
+            const idx = this.activeConv.messages.findIndex(m => m.id === tempId);
+            if (idx !== -1) {
+                this.activeConv.messages[idx] = realMsg;
+            } else if (!this.activeConv.messages.some(m => m.id === realMsg.id)) {
+                this.activeConv.messages.push(realMsg);
+            }
+        }
+
+        // Reconcile cache
+        if (this.convCache.has(realMsg.conversation_id)) {
+            const cached = this.convCache.get(realMsg.conversation_id);
+            if (cached && cached.messages) {
+                const cIdx = cached.messages.findIndex(m => m.id === tempId);
+                if (cIdx !== -1) cached.messages[cIdx] = realMsg;
+                else if (!cached.messages.some(m => m.id === realMsg.id)) cached.messages.push(realMsg);
+            }
+        }
+
+        // Reconcile conversation last message
+        const conv = this.conversations.find(c => c.id === realMsg.conversation_id);
+        if (conv) {
+            conv.last_message = realMsg;
+            this.renderConversations();
         }
     }
 
@@ -1045,7 +1187,16 @@ class ChatApp {
         }
 
         if (this.activeConv && this.activeConv.conversation.id == msg.conversation_id) {
-            // 2. Memory array check
+            // Check if this is confirming an optimistic temp message sent by current user
+            if (msg.sender_id === this.currentUser.id) {
+                const pending = this.activeConv.messages.find(m => String(m.id).startsWith("temp_") && m.content === msg.content);
+                if (pending) {
+                    this.reconcileOptimisticMessage(pending.id, msg);
+                    return;
+                }
+            }
+
+            // Memory array check
             if (this.activeConv.messages.some(m => m.id == msg.id)) {
                 return;
             }
@@ -1056,6 +1207,14 @@ class ChatApp {
 
             if (msg.sender_id !== this.currentUser.id) {
                 window.soundManager.playReceived();
+            }
+        }
+
+        // Keep memory cache updated
+        if (this.convCache.has(msg.conversation_id)) {
+            const cached = this.convCache.get(msg.conversation_id);
+            if (cached && cached.messages && !cached.messages.some(m => m.id === msg.id)) {
+                cached.messages.push(msg);
             }
         }
 
@@ -2100,6 +2259,11 @@ class ChatApp {
         if (this.syncInterval) clearInterval(this.syncInterval);
         this.syncInterval = setInterval(async () => {
             if (!this.currentUser || document.hidden) return;
+
+            // When socket is live and connected, messages stream in realtime; skip heavy polling!
+            const isSocketConnected = window.chatSocket?.socket?.connected;
+            if (isSocketConnected) return;
+
             if (this.activeConv && this.activeConv.conversation) {
                 try {
                     const cid = this.activeConv.conversation.id;
@@ -2126,7 +2290,7 @@ class ChatApp {
                     // ignore sync error
                 }
             }
-        }, 3000);
+        }, 12000);
     }
 
     toVietnamDate(dateObj) {
