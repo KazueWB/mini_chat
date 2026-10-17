@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zalo Messenger Web - Nền Tảng Nhắn Tin Thời Gian Thực</title>
+    <!-- Google Fonts: Be Vietnam Pro -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome 6 for crisp icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body class="theme-light">
+    <div id="app" class="app-layout">
+        <!-- 1. NAVIGATION BAR (FAR LEFT) -->
+        <aside class="nav-sidebar">
+            <div class="nav-top">
+                <div class="user-avatar-wrap" id="user-avatar-btn" title="Hồ sơ cá nhân & Đổi tài khoản">
+                    <img id="my-avatar" src="" alt="Avatar" class="avatar-circle">
+                    <span class="status-indicator online" id="my-status-dot"></span>
+                </div>
+
+                <nav class="nav-menu">
+                    <button class="nav-btn active" data-tab="messages" title="Tin nhắn">
+                        <i class="fa-solid fa-comment-dots"></i>
+                        <span class="unread-badge-global" id="global-unread-badge" style="display:none;">0</span>
+                    </button>
+                    <button class="nav-btn" data-tab="contacts" title="Danh bạ">
+                        <i class="fa-solid fa-address-book"></i>
+                    </button>
+                    <button class="nav-btn" data-action="new-group" title="Tạo nhóm chat">
+                        <i class="fa-solid fa-users-viewfinder"></i>
+                    </button>
+                </nav>
+            </div>
+
+            <div class="nav-bottom">
+                <button class="nav-btn" id="theme-toggle-btn" title="Đổi giao diện Sáng / Tối">
+                    <i class="fa-solid fa-moon"></i>
+                </button>
+                <button class="nav-btn" id="switch-account-btn" title="Đổi tài khoản demo">
+                    <i class="fa-solid fa-user-group"></i>
+                </button>
+                <button class="nav-btn" id="audio-toggle-btn" title="Bật/Tắt âm thanh thông báo">
+                    <i class="fa-solid fa-volume-high"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- 2. CONVERSATIONS & CONTACTS SIDEBAR (MIDDLE-LEFT) -->
+        <section class="conversations-sidebar" id="conversations-sidebar">
+            <!-- Header & Search -->
+            <div class="sidebar-header">
+                <div class="search-box">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" id="search-input" placeholder="Tìm kiếm tin nhắn, bạn bè...">
+                    <button id="clear-search-btn" class="clear-btn" style="display:none;"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="header-actions">
+                    <button class="icon-btn" id="btn-quick-new-chat" title="Tin nhắn mới">
+                        <i class="fa-solid fa-user-plus"></i>
+                    </button>
+                    <button class="icon-btn" id="btn-quick-new-group" title="Tạo nhóm mới">
+                        <i class="fa-solid fa-users"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filter Tabs -->
+            <div class="filter-tabs">
+                <button class="tab-pill active" data-filter="all">Tất cả</button>
+                <button class="tab-pill" data-filter="unread">Chưa đọc</button>
+                <button class="tab-pill" data-filter="group">Nhóm</button>
+            </div>
+
+            <!-- Conversation List -->
+            <div class="conv-list-container" id="conv-list-container">
+                <div class="conv-list" id="conversations-list">
+                    <!-- Dynamic conversation cards rendered here -->
+                </div>
+            </div>
+
+            <!-- Contacts Tab Content (Initially hidden) -->
+            <div class="contacts-container" id="contacts-container" style="display:none;">
+                <div class="contacts-category-title">BẠN BÈ TRỰC TUYẾN</div>
+                <div class="contacts-list" id="contacts-list">
+                    <!-- Dynamic contact items rendered here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. MAIN CHAT WINDOW (CENTER) -->
+        <main class="chat-main" id="chat-main">
+            <!-- Empty state when no chat selected -->
+            <div class="chat-empty-state" id="chat-empty-state">
+                <div class="empty-graphic">
+                    <div class="empty-icon-circle">
+                        <i class="fa-solid fa-comments"></i>
+                    </div>
+                </div>
+                <h2>Chào mừng bạn đến với Zalo Messenger Web!</h2>
+                <p>Chọn một cuộc trò chuyện từ danh sách bên trái hoặc bắt đầu trò chuyện mới để gửi tin nhắn, gọi thoại & chia sẻ hình ảnh.</p>
+                <div class="empty-quick-actions">
+                    <button class="btn btn-primary" id="btn-empty-new-chat">
+                        <i class="fa-solid fa-paper-plane"></i> Nhắn tin mới
+                    </button>
+                    <button class="btn btn-secondary" id="btn-empty-new-group">
+                        <i class="fa-solid fa-users"></i> Tạo nhóm chat
+                    </button>
+                </div>
+            </div>
+
+            <!-- Active Chat Container -->
+            <div class="chat-active-container" id="chat-active-container" style="display:none;">
+                <!-- Chat Top Header -->
+                <header class="chat-header">
+                    <div class="chat-header-left">
+                        <button class="back-btn mobile-only" id="btn-back-to-list" title="Quay lại">
+                            <i class="fa-solid fa-arrow-left"></i>
+                        </button>
+                        <div class="conv-avatar-wrap">
+                            <img id="chat-header-avatar" src="" alt="Avatar" class="avatar-circle">
+                            <span class="status-indicator online" id="chat-header-status-dot"></span>
+                        </div>
+                        <div class="conv-info">
+                            <h3 id="chat-header-name" class="conv-title">--</h3>
+                            <p id="chat-header-status-text" class="conv-status-text">Đang hoạt động</p>
+                        </div>
+                    </div>
+
+                    <div class="chat-header-actions">
+                        <button class="header-action-btn" id="btn-call-audio" title="Cuộc gọi thoại">
+                            <i class="fa-solid fa-phone"></i>
+                        </button>
+                        <button class="header-action-btn" id="btn-call-video" title="Cuộc gọi video">
+                            <i class="fa-solid fa-video"></i>
+                        </button>
+                        <button class="header-action-btn" id="btn-search-chat" title="Tìm trong trò chuyện">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                        </button>
+                        <button class="header-action-btn" id="btn-toggle-info" title="Thông tin hội thoại">
+                            <i class="fa-solid fa-circle-info"></i>
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Pinned Message Banner -->
+                <div class="pinned-banner" id="pinned-banner" style="display:none;">
+                    <div class="pinned-icon"><i class="fa-solid fa-thumbtack"></i></div>
+                    <div class="pinned-content" id="pinned-banner-content">
+                        <span class="pinned-label">Tin nhắn đã ghim:</span>
+                        <span class="pinned-text" id="pinned-banner-text">...</span>
+                    </div>
+                    <button class="pinned-close" id="btn-unpin-banner" title="Bỏ ghim tin này">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <!-- Messages Stream Viewport -->
+                <div class="messages-viewport" id="messages-viewport">
+                    <div class="messages-stream" id="messages-stream">
+                        <!-- Messages dynamically rendered here -->
+                    </div>
+
+                    <!-- Live Typing Indicator -->
+                    <div class="typing-indicator-wrap" id="typing-indicator" style="display:none;">
+                        <div class="typing-bubble">
+                            <span class="typing-dot"></span>
+                            <span class="typing-dot"></span>
+                            <span class="typing-dot"></span>
+                        </div>
+                        <span class="typing-text" id="typing-text">Ai đó đang soạn tin...</span>
+                    </div>
+                </div>
+
+                <!-- Reply Preview Bar (Shows when replying) -->
+                <div class="reply-preview-bar" id="reply-preview-bar" style="display:none;">
+                    <div class="reply-preview-left">
+                        <i class="fa-solid fa-reply"></i>
+                        <div class="reply-info">
+                            <span class="reply-to-name" id="reply-to-name">Đang trả lời...</span>
+                            <span class="reply-to-content" id="reply-to-content">Nội dung...</span>
+                        </div>
+                    </div>
+                    <button class="close-reply-btn" id="btn-cancel-reply" title="Hủy trả lời">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <!-- Chat Input Section -->
+                <footer class="chat-input-area">
+                    <div class="input-actions-left">
+                        <label class="action-icon-btn" title="Gửi hình ảnh">
+                            <i class="fa-regular fa-image"></i>
+                            <input type="file" id="image-file-input" accept="image/*" style="display:none;">
+                        </label>
+                        <label class="action-icon-btn" title="Đính kèm tệp tin">
+                            <i class="fa-solid fa-paperclip"></i>
+                            <input type="file" id="doc-file-input" style="display:none;">
+                        </label>
+                        <button class="action-icon-btn" id="btn-emoji-picker-toggle" title="Biểu cảm Emoji">
+                            <i class="fa-regular fa-face-smile"></i>
+                        </button>
+                        <button class="action-icon-btn" id="btn-voice-record" title="Ghi âm giọng nói (Voice Note)">
+                            <i class="fa-solid fa-microphone"></i>
+                        </button>
+                    </div>
+
+                    <div class="input-editor-wrap">
+                        <textarea id="message-input" rows="1" placeholder="Nhập tin nhắn... (Enter để gửi, Shift+Enter xuống dòng)"></textarea>
+                    </div>
+
+                    <div class="input-actions-right">
+                        <button class="send-btn" id="btn-send-message" title="Gửi tin nhắn">
+                            <i class="fa-solid fa-paper-plane"></i>
+                        </button>
+                    </div>
+
+                    <!-- Emoji Picker Dropdown Popup -->
+                    <div class="emoji-picker-popup" id="emoji-picker-popup" style="display:none;">
+                        <div class="emoji-categories">
+                            <button class="emoji-cat-btn active" data-cat="smileys">😀 Cảm xúc</button>
+                            <button class="emoji-cat-btn" data-cat="gestures">👍 Cử chỉ</button>
+                            <button class="emoji-cat-btn" data-cat="hearts">❤️ Trái tim</button>
+                            <button class="emoji-cat-btn" data-cat="fun">🎉 Tiệc tùng</button>
+                        </div>
+                        <div class="emoji-grid" id="emoji-grid">
+                            <!-- Populated via JS -->
+                        </div>
+                    </div>
+                </footer>
+            </div>
+        </main>
+
+        <!-- 4. RIGHT SIDEBAR: CONVERSATION DETAILS (COLLAPSIBLE) -->
+        <aside class="chat-info-sidebar" id="chat-info-sidebar">
+            <div class="info-header">
+                <h3>Thông tin hội thoại</h3>
+                <button class="icon-btn" id="btn-close-info-sidebar" title="Đóng">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="info-body">
+                <div class="info-profile">
+                    <img id="info-avatar" src="" alt="Avatar" class="avatar-circle-lg">
+                    <h4 id="info-name">--</h4>
+                    <p id="info-sub" class="info-sub-text">--</p>
+                </div>
+
+                <div class="info-section">
+                    <h5 class="section-title">Thành viên tham gia (<span id="info-members-count">0</span>)</h5>
+                    <div class="members-list" id="info-members-list">
+                        <!-- Dynamic member list -->
+                    </div>
+                </div>
+
+                <div class="info-section">
+                    <h5 class="section-title">Hình ảnh & Tệp đã gửi</h5>
+                    <div class="media-tabs">
+                        <button class="media-tab-btn active" data-tab="images">Ảnh</button>
+                        <button class="media-tab-btn" data-tab="files">Tệp tin</button>
+                    </div>
+                    <div class="media-gallery" id="info-media-gallery">
+                        <!-- Media items -->
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- 5. MODALS & OVERLAYS -->
+
+    <!-- Switch User Modal -->
+    <div class="modal-overlay" id="modal-switch-user" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-users"></i> Chuyển đổi tài khoản Demo</h3>
+                <button class="modal-close-btn" data-modal="modal-switch-user">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-subtitle">Chọn người dùng để trải nghiệm tính năng nhắn tin qua lại thời gian thực:</p>
+                <div class="user-picker-list" id="user-picker-list">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Group Modal -->
+    <div class="modal-overlay" id="modal-create-group" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-users-medical"></i> Tạo nhóm trò chuyện mới</h3>
+                <button class="modal-close-btn" data-modal="modal-create-group">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Tên nhóm:</label>
+                    <input type="text" id="new-group-name" placeholder="Ví dụ: Team Dự án 2026, Bạn Thân..." class="input-control">
+                </div>
+                <div class="form-group">
+                    <label>Chọn thành viên vào nhóm:</label>
+                    <div class="group-members-checklist" id="group-members-checklist">
+                        <!-- Dynamic checkboxes -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-modal="modal-create-group">Hủy</button>
+                <button class="btn btn-primary" id="btn-confirm-create-group">Tạo nhóm ngay</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Direct Chat Modal -->
+    <div class="modal-overlay" id="modal-new-chat" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-user-plus"></i> Bắt đầu trò chuyện</h3>
+                <button class="modal-close-btn" data-modal="modal-new-chat">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-subtitle">Chọn bạn bè để mở cuộc trò chuyện:</p>
+                <div class="new-chat-friends-list" id="new-chat-friends-list">
+                    <!-- Dynamic friends -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Lightbox Modal -->
+    <div class="lightbox-overlay" id="image-lightbox" style="display:none;">
+        <button class="lightbox-close" id="btn-close-lightbox">&times;</button>
+        <div class="lightbox-content">
+            <img id="lightbox-img" src="" alt="Xem ảnh phóng to">
+            <div class="lightbox-footer">
+                <a id="lightbox-download-link" href="#" download class="btn btn-secondary">
+                    <i class="fa-solid fa-download"></i> Tải về máy
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Call Overlay (Voice / Video Call Simulation) -->
+    <div class="call-overlay" id="call-overlay" style="display:none;">
+        <div class="call-window">
+            <div class="call-header">
+                <span class="call-type-badge" id="call-type-badge"><i class="fa-solid fa-video"></i> Cuộc gọi Video</span>
+                <span class="call-timer" id="call-timer">Đang gọi...</span>
+            </div>
+
+            <div class="call-video-container" id="call-video-container">
+                <!-- Remote Video / Avatar Screen -->
+                <div class="remote-screen" id="remote-screen">
+                    <img id="call-remote-avatar" src="" alt="Remote" class="call-big-avatar">
+                    <h3 id="call-remote-name" class="call-name">--</h3>
+                    <p id="call-status-state" class="call-state">Đang đổ chuông...</p>
+                    <video id="remote-video-feed" autoplay playsinline style="display:none;"></video>
+                </div>
+
+                <!-- Local Picture-in-Picture Video -->
+                <div class="local-screen" id="local-screen" style="display:none;">
+                    <video id="local-video-feed" autoplay playsinline muted></video>
+                    <span class="local-label">Bạn</span>
+                </div>
+            </div>
+
+            <!-- Call Control Bar -->
+            <div class="call-controls">
+                <button class="call-btn btn-mic" id="btn-call-mic" title="Bật/Tắt Micro">
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+                <button class="call-btn btn-cam" id="btn-call-cam" title="Bật/Tắt Camera">
+                    <i class="fa-solid fa-video"></i>
+                </button>
+                <button class="call-btn btn-end-call" id="btn-call-end" title="Kết thúc cuộc gọi">
+                    <i class="fa-solid fa-phone-slash"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/sound.js"></script>
+    <script src="/static/js/socket.js"></script>
+    <script src="/static/js/call.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
