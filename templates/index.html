@@ -560,6 +560,40 @@
         </div>
     </div>
 
+    <!-- Incoming Call Modal (Thông báo cuộc gọi đến) -->
+    <div class="incoming-call-overlay" id="incoming-call-modal" style="display:none;">
+        <div class="incoming-call-card">
+            <div class="incoming-call-badge" id="incoming-call-badge">
+                <i class="fa-solid fa-phone-volume"></i> Cuộc gọi đến
+            </div>
+            
+            <div class="incoming-avatar-box">
+                <div class="incoming-pulse-ring"></div>
+                <div class="incoming-pulse-ring delay"></div>
+                <img id="incoming-caller-avatar" src="" alt="Caller" class="incoming-caller-img">
+            </div>
+
+            <h3 id="incoming-caller-name" class="incoming-caller-name">--</h3>
+            <p id="incoming-call-desc" class="incoming-call-desc">Đang gọi cho bạn...</p>
+
+            <div class="incoming-actions-row">
+                <button class="incoming-btn btn-decline-call" id="btn-decline-call" title="Từ chối">
+                    <div class="action-btn-circle red">
+                        <i class="fa-solid fa-phone-slash"></i>
+                    </div>
+                    <span>Từ chối</span>
+                </button>
+
+                <button class="incoming-btn btn-accept-call" id="btn-accept-call" title="Trả lời">
+                    <div class="action-btn-circle green pulse-btn">
+                        <i class="fa-solid fa-phone"></i>
+                    </div>
+                    <span>Trả lời</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Call Overlay (Voice / Video Call Simulation) -->
     <div class="call-overlay" id="call-overlay" style="display:none;">
         <div class="call-window">

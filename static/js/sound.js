@@ -106,6 +106,53 @@ class SoundManager {
         }
     }
 
+    startIncomingRing() {
+        if (!this.enabled || this.incomingRingInterval) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const playChime = () => {
+            if (!this.enabled || !this.ctx) return;
+            const now = this.ctx.currentTime;
+            
+            // Musical incoming melody: C5 (523), E5 (659), G5 (784), C6 (1046)
+            const notes = [
+                { f: 523.25, start: 0, dur: 0.18 },
+                { f: 659.25, start: 0.15, dur: 0.18 },
+                { f: 783.99, start: 0.30, dur: 0.22 },
+                { f: 1046.50, start: 0.48, dur: 0.45 },
+                { f: 783.99, start: 0.95, dur: 0.18 },
+                { f: 1046.50, start: 1.15, dur: 0.45 }
+            ];
+
+            notes.forEach(n => {
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(n.f, now + n.start);
+
+                gain.gain.setValueAtTime(0.28, now + n.start);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + n.start + n.dur);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start(now + n.start);
+                osc.stop(now + n.start + n.dur);
+            });
+        };
+
+        playChime();
+        this.incomingRingInterval = setInterval(playChime, 2400);
+    }
+
+    stopIncomingRing() {
+        if (this.incomingRingInterval) {
+            clearInterval(this.incomingRingInterval);
+            this.incomingRingInterval = null;
+        }
+    }
+
     playEndCall() {
         if (!this.enabled) return;
         this.init();

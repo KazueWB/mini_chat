@@ -1890,6 +1890,245 @@ body.theme-dark .conv-item.active {
     background: #ef4444;
 }
 
+/* ==================== INCOMING CALL MODAL ==================== */
+.incoming-call-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.82);
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 4000;
+    animation: fadeIn 0.25s ease;
+}
+
+.incoming-call-card {
+    background: linear-gradient(145deg, #1e293b, #0f172a);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-xl);
+    width: 340px;
+    max-width: 90vw;
+    padding: 30px 24px;
+    text-align: center;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.incoming-call-badge {
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 14px;
+    border-radius: var(--radius-full);
+    margin-bottom: 24px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    animation: bounceSlow 2s infinite;
+}
+
+@keyframes bounceSlow {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+}
+
+.incoming-avatar-box {
+    position: relative;
+    width: 100px;
+    height: 100px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.incoming-caller-img {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid #38bdf8;
+    position: relative;
+    z-index: 2;
+    background-color: var(--bg-surface);
+}
+
+.incoming-pulse-ring {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 2px solid #38bdf8;
+    animation: incomingPulse 2s infinite ease-out;
+    z-index: 1;
+}
+
+.incoming-pulse-ring.delay {
+    animation-delay: 1s;
+}
+
+@keyframes incomingPulse {
+    0% { transform: scale(1); opacity: 0.9; }
+    100% { transform: scale(1.6); opacity: 0; }
+}
+
+.incoming-caller-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 6px;
+}
+
+.incoming-call-desc {
+    font-size: 13.5px;
+    color: #94a3b8;
+    margin-bottom: 30px;
+}
+
+.incoming-actions-row {
+    display: flex;
+    justify-content: space-around;
+    width: 100%;
+    padding: 0 10px;
+}
+
+.incoming-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 600;
+    transition: var(--transition-bounce);
+}
+
+.incoming-btn:hover {
+    transform: scale(1.08);
+}
+
+.action-btn-circle {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: #ffffff;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+}
+
+.action-btn-circle.red {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.action-btn-circle.green {
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+
+.action-btn-circle.pulse-btn {
+    animation: answerPulse 1.4s infinite alternate;
+}
+
+@keyframes answerPulse {
+    from { box-shadow: 0 0 10px rgba(34, 197, 94, 0.4); transform: scale(1); }
+    to { box-shadow: 0 0 25px rgba(34, 197, 94, 0.85); transform: scale(1.06); }
+}
+
+/* ==================== CALL LOG MESSAGE BUBBLE IN CHAT ==================== */
+.msg-call-bubble {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background-color: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    min-width: 220px;
+}
+
+.msg-row.outgoing .msg-call-bubble {
+    background-color: var(--bg-surface);
+    border-color: var(--primary-light);
+}
+
+.call-icon-circle {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.msg-call-bubble.missed .call-icon-circle {
+    background-color: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+}
+
+.msg-call-bubble.declined .call-icon-circle {
+    background-color: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+}
+
+.msg-call-bubble.completed .call-icon-circle {
+    background-color: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+}
+
+.call-msg-details {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.call-msg-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.msg-call-bubble.missed .call-msg-title {
+    color: #ef4444;
+}
+
+.call-msg-time {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.call-back-btn {
+    background-color: var(--primary-light);
+    color: var(--primary);
+    border: none;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    transition: var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.call-back-btn:hover {
+    background-color: var(--primary);
+    color: #ffffff;
+}
+
 /* ==========================================================================
    Responsive Adaptations
    ========================================================================== */

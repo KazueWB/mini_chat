@@ -682,6 +682,30 @@ class ChatApp {
             return row;
         }
 
+        if (msg.message_type === "call") {
+            const isMissed = (msg.content || "").includes("nhỡ");
+            const isDeclined = (msg.content || "").includes("từ chối");
+            const isVideo = (msg.content || "").includes("video");
+            const iconClass = isVideo ? (isMissed ? "fa-solid fa-video-slash" : "fa-solid fa-video") : (isMissed ? "fa-solid fa-phone-slash" : "fa-solid fa-phone");
+            const statusClass = isMissed ? "missed" : (isDeclined ? "declined" : "completed");
+            const timeStr = this.formatTimeOnly(msg.created_at);
+
+            row.className = `msg-row ${isMe ? 'outgoing' : 'incoming'}`;
+            row.innerHTML = `
+                <div class="msg-call-bubble ${statusClass}">
+                    <div class="call-icon-circle">
+                        <i class="${iconClass}"></i>
+                    </div>
+                    <div class="call-msg-details">
+                        <span class="call-msg-title">${this.escapeHTML(msg.content)}</span>
+                        <span class="call-msg-time">${timeStr}</span>
+                    </div>
+                    ${!isMe ? `<button class="call-back-btn" onclick="window.app.callUserBack(${msg.sender_id}, '${isVideo ? 'video' : 'audio'}')">Gọi lại</button>` : ''}
+                </div>
+            `;
+            return row;
+        }
+
         const isGroup = this.activeConv?.conversation?.type === "group";
         const showAvatar = !isMe;
         const showSenderName = !isMe && isGroup;
@@ -1876,6 +1900,28 @@ class ChatApp {
             return "Hôm nay";
         }
         return `${d.getDate()} Tháng ${d.getMonth() + 1}, ${d.getFullYear()}`;
+    }
+
+    async callUserBack(targetUserId, type = "audio") {
+        if (!targetUserId) return;
+        try {
+            const res = await fetch("/api/conversations", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    type: "direct",
+                    target_user_id: targetUserId
+                })
+            });
+            const data = await res.json();
+            if (data.id) {
+                await this.selectConversation(data.id);
+                const other = this.activeConv.participants.find(p => p.id !== this.currentUser.id);
+                window.callManager.startCall(type, other, this.activeConv.conversation);
+            }
+        } catch (e) {
+            console.error("Failed to call back:", e);
+        }
     }
 
     escapeHTML(str) {
