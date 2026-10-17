@@ -18,6 +18,10 @@ os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
+# Initialize and seed database on startup
+database.init_db()
+database.seed_db()
+
 # Helper to get current user ID
 def get_current_user_id():
     user_id = session.get("user_id")
@@ -34,8 +38,13 @@ def get_current_user_id():
 
 # ----------------- WEB ROUTES -----------------
 @app.route("/")
+@app.route("/index.html")
 def index():
     return render_template("index.html")
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "service": "mini-chat"})
 
 # ----------------- AUTH & USER APIS -----------------
 @app.route("/api/me", methods=["GET"])
