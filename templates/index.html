@@ -159,11 +159,26 @@
                 </div>
             </div>
 
-            <!-- Filter Tabs -->
-            <div class="filter-tabs">
+            <!-- Filter Tabs (Chỉ hiển thị khi ở tab Tin nhắn) -->
+            <div class="filter-tabs" id="conversation-filter-tabs">
                 <button class="tab-pill active" data-filter="all">Tất cả</button>
                 <button class="tab-pill" data-filter="unread">Chưa đọc</button>
                 <button class="tab-pill" data-filter="group">Nhóm</button>
+            </div>
+
+            <!-- Contacts Toolbar (Hiển thị khi ở tab Danh bạ bạn bè: hiển thị số bạn bè & sắp xếp A-Z / Z-A) -->
+            <div class="contacts-toolbar" id="contacts-toolbar" style="display:none;">
+                <div class="contacts-count-label">
+                    <i class="fa-solid fa-user-group"></i> Bạn bè (<span id="contacts-total-count" class="contacts-count-badge">0</span>)
+                </div>
+                <div class="contacts-sort-actions">
+                    <button class="sort-pill active" id="btn-sort-az" data-sort="az" title="Sắp xếp tên từ A đến Z">
+                        <i class="fa-solid fa-arrow-down-a-z"></i> A-Z
+                    </button>
+                    <button class="sort-pill" id="btn-sort-za" data-sort="za" title="Sắp xếp tên từ Z đến A">
+                        <i class="fa-solid fa-arrow-up-z-a"></i> Z-A
+                    </button>
+                </div>
             </div>
 
             <!-- Conversation List -->
@@ -187,7 +202,7 @@
                     </div>
                 </div>
 
-                <div class="contacts-category-title">BẠN BÈ CỦA BẠN</div>
+                <div class="contacts-category-title" id="contacts-category-header" style="display:none;">BẠN BÈ CỦA BẠN</div>
                 <div class="contacts-list" id="contacts-list">
                     <!-- Dynamic contact items rendered here -->
                 </div>

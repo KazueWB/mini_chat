@@ -10,6 +10,8 @@ class ChatApp {
         this.convCache = new Map();
         this.currentSelectedConvId = null;
         this.activeFilter = "all"; // 'all', 'unread', 'group'
+        this.currentNavTab = "messages"; // 'messages' or 'contacts'
+        this.friendSortOrder = "az"; // 'az' or 'za'
         this.replyTarget = null;
         this.isRecordingVoice = false;
         this.mediaRecorder = null;
@@ -55,9 +57,14 @@ class ChatApp {
         this.themeToggleBtn = document.getElementById("theme-toggle-btn");
         this.audioToggleBtn = document.getElementById("audio-toggle-btn");
 
-        // Sidebar
+        // Sidebar & Toolbars
         this.searchInput = document.getElementById("search-input");
         this.clearSearchBtn = document.getElementById("clear-search-btn");
+        this.conversationFilterTabs = document.getElementById("conversation-filter-tabs");
+        this.contactsToolbar = document.getElementById("contacts-toolbar");
+        this.contactsTotalCount = document.getElementById("contacts-total-count");
+        this.btnSortAz = document.getElementById("btn-sort-az");
+        this.btnSortZa = document.getElementById("btn-sort-za");
         this.conversationsList = document.getElementById("conversations-list");
         this.contactsContainer = document.getElementById("contacts-container");
         this.convListContainer = document.getElementById("conv-list-container");
@@ -474,24 +481,66 @@ class ChatApp {
         }
     }
 
+    getVietnameseSortKey(fullName) {
+        const parts = (fullName || "").trim().split(/\s+/);
+        if (parts.length === 0) return "";
+        const firstName = parts[parts.length - 1]; // Ví dụ: Kiệt, Bảo (tên chính)
+        const lastName = parts.slice(0, -1).join(" "); // Ví dụ: Phan Tân (họ và tên đệm)
+        return `${firstName} ${lastName}`.toLowerCase();
+    }
+
     renderFriendsList() {
-        if (this.friends.length === 0) {
-            this.contactsList.innerHTML = `
-                <div style="text-align:center; padding:30px 16px; color:var(--text-muted); font-size:13px;">
-                    Bạn chưa có bạn bè nào.<br>
-                    <button class="btn btn-primary" style="margin-top:10px; padding:6px 14px; font-size:12px;" onclick="window.app.openAddFriendModal()">
-                        <i class="fa-solid fa-user-plus"></i> Tìm bạn qua SĐT
-                    </button>
-                </div>
-            `;
+        if (this.contactsTotalCount) {
+            this.contactsTotalCount.textContent = this.friends.length;
+        }
+
+        let list = [...this.friends];
+
+        // Lọc theo từ khóa tìm kiếm nếu có
+        if (this.searchQuery) {
+            const q = this.searchQuery.toLowerCase();
+            list = list.filter(u => 
+                (u.display_name && u.display_name.toLowerCase().includes(q)) ||
+                (u.username && u.username.toLowerCase().includes(q)) ||
+                (u.phone && u.phone.includes(q))
+            );
+        }
+
+        // Sắp xếp theo thứ tự chữ cái A-Z hoặc Z-A chuẩn tiếng Việt
+        list.sort((a, b) => {
+            const nameA = a.display_name || a.username || "";
+            const nameB = b.display_name || b.username || "";
+            const keyA = this.getVietnameseSortKey(nameA);
+            const keyB = this.getVietnameseSortKey(nameB);
+            const cmp = keyA.localeCompare(keyB, 'vi', { sensitivity: 'base', numeric: true });
+            return this.friendSortOrder === "za" ? -cmp : cmp;
+        });
+
+        if (list.length === 0) {
+            if (this.searchQuery) {
+                this.contactsList.innerHTML = `
+                    <div style="text-align:center; padding:30px 16px; color:var(--text-muted); font-size:13px;">
+                        Không tìm thấy bạn bè nào khớp với "<strong>${this.escapeHTML(this.searchQuery)}</strong>"
+                    </div>
+                `;
+            } else {
+                this.contactsList.innerHTML = `
+                    <div style="text-align:center; padding:30px 16px; color:var(--text-muted); font-size:13px;">
+                        Bạn chưa có bạn bè nào.<br>
+                        <button class="btn btn-primary" style="margin-top:10px; padding:6px 14px; font-size:12px;" onclick="window.app.openAddFriendModal()">
+                            <i class="fa-solid fa-user-plus"></i> Tìm bạn qua SĐT
+                        </button>
+                    </div>
+                `;
+            }
             return;
         }
 
-        this.contactsList.innerHTML = this.friends.map(u => `
+        this.contactsList.innerHTML = list.map(u => `
             <div class="contact-item" onclick="window.app.startDirectChatWith(${u.id})" style="display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer;">
                 <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1;">
                     <div class="conv-avatar-box" onclick="event.stopPropagation(); window.app.openUserProfile(${u.id});" title="Bấm để xem trang cá nhân" style="cursor:pointer;">
-                        <img src="${u.avatar_url}" alt="${u.display_name}" class="avatar-circle">
+                        <img src="${u.avatar_url}" alt="${this.escapeHTML(u.display_name)}" class="avatar-circle">
                         <span class="status-indicator ${u.status || 'offline'}"></span>
                     </div>
                     <div class="contact-info">
@@ -2100,27 +2149,47 @@ class ChatApp {
             }
         });
 
-        // Filter tabs
-        document.querySelectorAll(".tab-pill").forEach(pill => {
+        // Filter tabs (Chỉ áp dụng cho các tab bộ lọc tin nhắn)
+        document.querySelectorAll("#conversation-filter-tabs .tab-pill").forEach(pill => {
             pill.addEventListener("click", () => {
-                document.querySelectorAll(".tab-pill").forEach(p => p.classList.remove("active"));
+                document.querySelectorAll("#conversation-filter-tabs .tab-pill").forEach(p => p.classList.remove("active"));
                 pill.classList.add("active");
                 this.activeFilter = pill.dataset.filter;
                 this.renderConversations();
             });
         });
 
-        // Search conversations
+        // Contacts sort buttons (A-Z và Z-A)
+        if (this.btnSortAz) {
+            this.btnSortAz.addEventListener("click", () => {
+                this.friendSortOrder = "az";
+                this.btnSortAz.classList.add("active");
+                if (this.btnSortZa) this.btnSortZa.classList.remove("active");
+                this.renderFriendsList();
+            });
+        }
+        if (this.btnSortZa) {
+            this.btnSortZa.addEventListener("click", () => {
+                this.friendSortOrder = "za";
+                this.btnSortZa.classList.add("active");
+                if (this.btnSortAz) this.btnSortAz.classList.remove("active");
+                this.renderFriendsList();
+            });
+        }
+
+        // Search conversations & friends
         this.searchInput.addEventListener("input", (e) => {
             this.searchQuery = e.target.value.trim();
             this.clearSearchBtn.style.display = this.searchQuery ? "block" : "none";
             this.renderConversations();
+            this.renderFriendsList();
         });
         this.clearSearchBtn.addEventListener("click", () => {
             this.searchInput.value = "";
             this.searchQuery = "";
             this.clearSearchBtn.style.display = "none";
             this.renderConversations();
+            this.renderFriendsList();
         });
 
         // Theme toggle
@@ -2186,6 +2255,9 @@ class ChatApp {
         document.getElementById("btn-back-to-list").addEventListener("click", () => {
             this.chatMain.classList.remove("mobile-active");
             document.body.classList.remove("mobile-chat-open");
+            if (this.chatInfoSidebar) {
+                this.chatInfoSidebar.classList.remove("open");
+            }
         });
 
         // Calls
@@ -2238,13 +2310,18 @@ class ChatApp {
     }
 
     switchNavTab(tab) {
+        this.currentNavTab = tab;
         document.querySelectorAll(".nav-btn[data-tab]").forEach(b => {
             b.classList.toggle("active", b.dataset.tab === tab);
         });
         if (tab === "messages") {
+            if (this.conversationFilterTabs) this.conversationFilterTabs.style.display = "flex";
+            if (this.contactsToolbar) this.contactsToolbar.style.display = "none";
             this.convListContainer.style.display = "block";
             this.contactsContainer.style.display = "none";
         } else if (tab === "contacts") {
+            if (this.conversationFilterTabs) this.conversationFilterTabs.style.display = "none";
+            if (this.contactsToolbar) this.contactsToolbar.style.display = "flex";
             this.convListContainer.style.display = "none";
             this.contactsContainer.style.display = "block";
             this.loadFriends();
