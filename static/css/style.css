@@ -2378,9 +2378,10 @@ body.theme-dark .conv-item.active {
 
 /* ==================== RESPONSIVE MOBILE LAYOUT (<= 768px) ==================== */
 @media (max-width: 768px) {
-    /* 1. App Layout */
+    /* 1. App Layout - clean horizontal flex */
     .app-layout {
-        flex-direction: column-reverse;
+        display: flex;
+        flex-direction: row;
         width: 100vw;
         height: 100vh;
         height: 100dvh;
@@ -2388,54 +2389,68 @@ body.theme-dark .conv-item.active {
         position: relative;
     }
 
-    /* 2. Navigation Sidebar as Native App Bottom Bar when in list view */
-    .sidebar {
-        width: 100%;
-        height: 56px;
-        flex-direction: row;
-        justify-content: space-around;
-        align-items: center;
-        padding: 4px 12px;
-        border-right: none;
-        border-top: 1px solid var(--border-color);
-        background-color: var(--sidebar-bg);
+    /* 2. Navigation Sidebar (Left compact 56px) */
+    .nav-sidebar {
+        width: 56px;
+        min-width: 56px;
+        height: 100%;
+        padding: 14px 0 12px 0;
         flex-shrink: 0;
-        z-index: 30;
+        z-index: 10;
     }
 
-    .sidebar-top {
-        flex-direction: row;
-        gap: 20px;
-        align-items: center;
+    .nav-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 18px;
     }
 
-    .sidebar-bottom {
-        flex-direction: row;
-        gap: 16px;
-        align-items: center;
-        border-top: none;
-        padding-top: 0;
+    .user-avatar-wrap {
+        margin-bottom: 16px;
     }
 
-    .sidebar-secondary {
-        width: 100%;
+    .user-avatar-wrap .avatar-circle {
+        width: 38px;
+        height: 38px;
+    }
+
+    /* 3. Conversations Sidebar (Fills entire remaining width and full height) */
+    .conversations-sidebar {
         flex: 1;
-        height: calc(100% - 56px);
+        width: calc(100vw - 56px);
+        height: 100%;
+        height: 100dvh;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
         border-right: none;
     }
 
-    /* 3. Chat Main Viewport */
+    .sidebar-header {
+        padding: 12px 10px 8px 10px;
+    }
+
+    .sidebar-tabs {
+        padding: 0 10px 8px 10px;
+    }
+
+    .conv-list-container {
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    /* 4. Chat Main Viewport */
     .chat-main {
         display: none;
     }
 
-    /* When user opens a conversation */
-    body.mobile-chat-open .sidebar,
-    .chat-main.mobile-active ~ .sidebar {
+    /* When user opens a conversation on mobile */
+    body.mobile-chat-open .nav-sidebar {
         display: none !important;
     }
 
-    body.mobile-chat-open .sidebar-secondary {
+    body.mobile-chat-open .conversations-sidebar {
         display: none !important;
     }
 

@@ -14,6 +14,15 @@ class ChatApp {
         this.audioChunks = [];
         this.searchQuery = "";
 
+        // Global image error handler: automatically fallback to cute Dicebear avatar so broken image icons never appear
+        window.addEventListener("error", (e) => {
+            if (e.target && e.target.tagName === "IMG") {
+                const alt = e.target.getAttribute("alt") || "user";
+                e.target.onerror = null;
+                e.target.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(alt)}&backgroundColor=b6e3f4,ffd5dc,c0aede`;
+            }
+        }, true);
+
         this.initDOMElements();
         this.initEmojiPicker();
         this.initEventListeners();
@@ -1390,36 +1399,53 @@ class ChatApp {
         }
     }
 
-    async handleAvatarUpload(file) {
-        if (!file) return;
-        const formData = new FormData();
-        formData.append("file", file);
-
-        try {
-            const upRes = await fetch("/api/upload", {
-                method: "POST",
-                body: formData
-            });
-            const upData = await upRes.json();
-            if (upData.url) {
-                const res = await fetch("/api/profile/update", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        display_name: this.currentUser.display_name,
-                        avatar_url: upData.url
-                    })
-                });
-                const data = await res.json();
-                if (data.user) {
-                    this.currentUser = data.user;
-                    this.myAvatar.src = data.user.avatar_url;
-                    this.profileAvatarImg.src = data.user.avatar_url;
-                }
-            }
-        } catch (err) {
-            alert("Tải ảnh thất bại: " + err);
+    handleAvatarUpload(file) {
+        if (!file || !this.currentUser) return;
+        if (!file.type.startsWith("image/")) {
+            alert("Vui lòng chọn một tệp hình ảnh!");
+            return;
         }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = async () => {
+                const canvas = document.createElement("canvas");
+                const size = 180;
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext("2d");
+
+                // Crop center square
+                const minSide = Math.min(img.width, img.height);
+                const sx = (img.width - minSide) / 2;
+                const sy = (img.height - minSide) / 2;
+                ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+
+                const base64DataUrl = canvas.toDataURL("image/jpeg", 0.85);
+
+                try {
+                    const res = await fetch("/api/profile/update", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            display_name: this.currentUser.display_name,
+                            avatar_url: base64DataUrl
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.user) {
+                        this.currentUser = data.user;
+                        this.myAvatar.src = data.user.avatar_url;
+                        this.profileAvatarImg.src = data.user.avatar_url;
+                    }
+                } catch (err) {
+                    alert("Cập nhật ảnh đại diện thất bại!");
+                }
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
     }
 
     handleUserProfileUpdated(data) {
