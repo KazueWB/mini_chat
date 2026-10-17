@@ -410,15 +410,20 @@ class ChatApp {
         }
 
         this.contactsList.innerHTML = this.friends.map(u => `
-            <div class="contact-item" onclick="window.app.startDirectChatWith(${u.id})">
-                <div class="conv-avatar-box">
-                    <img src="${u.avatar_url}" alt="${u.display_name}" class="avatar-circle">
-                    <span class="status-indicator ${u.status || 'offline'}"></span>
+            <div class="contact-item" onclick="window.app.startDirectChatWith(${u.id})" style="display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer;">
+                <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1;">
+                    <div class="conv-avatar-box">
+                        <img src="${u.avatar_url}" alt="${u.display_name}" class="avatar-circle">
+                        <span class="status-indicator ${u.status || 'offline'}"></span>
+                    </div>
+                    <div class="contact-info">
+                        <div class="contact-name">${this.escapeHTML(u.display_name)}</div>
+                        <div class="contact-bio"><i class="fa-solid fa-phone"></i> ${this.escapeHTML(u.phone || 'Chưa cập nhật')}</div>
+                    </div>
                 </div>
-                <div class="contact-info">
-                    <div class="contact-name">${this.escapeHTML(u.display_name)}</div>
-                    <div class="contact-bio"><i class="fa-solid fa-phone"></i> ${this.escapeHTML(u.phone || 'Chưa cập nhật')}</div>
-                </div>
+                <button class="btn btn-primary" style="padding:6px 14px; font-size:12.5px; border-radius:var(--radius-full); flex-shrink:0;" onclick="event.stopPropagation(); window.app.startDirectChatWith(${u.id});">
+                    <i class="fa-solid fa-comment-dots"></i> Nhắn tin
+                </button>
             </div>
         `).join("");
     }
@@ -1039,9 +1044,9 @@ class ChatApp {
             });
             const data = await res.json();
             if (data.id) {
+                this.switchNavTab("messages");
                 await this.loadConversations();
                 this.selectConversation(data.id);
-                this.switchNavTab("messages");
             }
         } catch (err) {
             console.error("Failed to start direct chat:", err);
@@ -1095,6 +1100,7 @@ class ChatApp {
             if (data.id) {
                 nameInput.value = "";
                 this.closeModal(this.modalCreateGroup);
+                this.switchNavTab("messages");
                 await this.loadConversations();
                 this.selectConversation(data.id);
             }

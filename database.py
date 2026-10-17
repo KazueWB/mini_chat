@@ -40,7 +40,7 @@ class PGConnWrapper:
         q = q.replace("json_object", "json_build_object")
         params = tuple(params) if params else ()
         
-        is_insert = q.strip().upper().startswith("INSERT") and "RETURNING" not in q.upper()
+        is_insert = q.strip().upper().startswith("INSERT") and "RETURNING" not in q.upper() and "PARTICIPANTS" not in q.upper()
         if is_insert:
             q += " RETURNING id"
             
