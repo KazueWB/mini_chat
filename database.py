@@ -5,7 +5,7 @@ from datetime import datetime
 
 # Neon PostgreSQL Connection URL
 NEON_DB_URL = "postgresql://neondb_owner:npg_SpNcHg1vM0Ko@ep-quiet-lake-b42fo9ae-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
-DATABASE_URL = os.environ.get("DATABASE_URL", NEON_DB_URL)
+DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SQL_chat") or NEON_DB_URL
 
 try:
     import psycopg2
