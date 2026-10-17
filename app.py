@@ -13,8 +13,10 @@ class CustomJSON:
     @staticmethod
     def dumps(*args, **kwargs):
         def default(o):
-            if isinstance(o, (datetime, date)):
-                return o.strftime("%Y-%m-%d %H:%M:%S")
+            if isinstance(o, datetime):
+                return o.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if isinstance(o, date):
+                return o.strftime("%Y-%m-%d")
             return str(o)
         kwargs["default"] = default
         return json.dumps(*args, **kwargs)
@@ -46,6 +48,16 @@ def parse_json_or_dict(val):
         return json.loads(val)
     except Exception:
         return None
+
+def format_datetime_utc(dt_val):
+    if not dt_val:
+        return ""
+    if hasattr(dt_val, "strftime"):
+        return dt_val.strftime("%Y-%m-%dT%H:%M:%SZ")
+    s = str(dt_val).strip()
+    if s and not s.endswith("Z") and not ("+" in s[10:] or "-" in s[10:]):
+        return s.replace(" ", "T") + "Z"
+    return s
 
 # Helper to get current user ID
 def get_current_user_id():
@@ -103,10 +115,10 @@ def get_me():
     conn.close()
     if user:
         res = dict(user)
-        if res.get("created_at") and hasattr(res["created_at"], "strftime"):
-            res["created_at"] = res["created_at"].strftime("%Y-%m-%d %H:%M:%S")
-        if res.get("last_seen") and hasattr(res["last_seen"], "strftime"):
-            res["last_seen"] = res["last_seen"].strftime("%Y-%m-%d %H:%M:%S")
+        if res.get("created_at"):
+            res["created_at"] = format_datetime_utc(res["created_at"])
+        if res.get("last_seen"):
+            res["last_seen"] = format_datetime_utc(res["last_seen"])
         res["authenticated"] = True
         return jsonify(res)
     return jsonify({"authenticated": False}), 200
@@ -174,10 +186,10 @@ def auth_login():
     session["user_id"] = user["id"]
     user_dict = dict(user)
     del user_dict["password"]
-    if user_dict.get("created_at") and hasattr(user_dict["created_at"], "strftime"):
-        user_dict["created_at"] = user_dict["created_at"].strftime("%Y-%m-%d %H:%M:%S")
-    if user_dict.get("last_seen") and hasattr(user_dict["last_seen"], "strftime"):
-        user_dict["last_seen"] = user_dict["last_seen"].strftime("%Y-%m-%d %H:%M:%S")
+    if user_dict.get("created_at"):
+        user_dict["created_at"] = format_datetime_utc(user_dict["created_at"])
+    if user_dict.get("last_seen"):
+        user_dict["last_seen"] = format_datetime_utc(user_dict["last_seen"])
     user_dict["authenticated"] = True
     return jsonify({"success": True, "user": user_dict})
 
@@ -236,10 +248,10 @@ def get_user_profile(target_user_id):
         return jsonify({"error": "Người dùng không tồn tại"}), 404
         
     u_dict = dict(user)
-    if u_dict.get("created_at") and hasattr(u_dict["created_at"], "strftime"):
-        u_dict["created_at"] = u_dict["created_at"].strftime("%Y-%m-%d %H:%M:%S")
-    if u_dict.get("last_seen") and hasattr(u_dict["last_seen"], "strftime"):
-        u_dict["last_seen"] = u_dict["last_seen"].strftime("%Y-%m-%d %H:%M:%S")
+    if u_dict.get("created_at"):
+        u_dict["created_at"] = format_datetime_utc(u_dict["created_at"])
+    if u_dict.get("last_seen"):
+        u_dict["last_seen"] = format_datetime_utc(u_dict["last_seen"])
 
     if current_uid == target_user_id:
         u_dict["is_me"] = True
@@ -320,10 +332,10 @@ def update_profile():
     conn.close()
 
     u_dict = dict(updated_user)
-    if u_dict.get("created_at") and hasattr(u_dict["created_at"], "strftime"):
-        u_dict["created_at"] = u_dict["created_at"].strftime("%Y-%m-%d %H:%M:%S")
-    if u_dict.get("last_seen") and hasattr(u_dict["last_seen"], "strftime"):
-        u_dict["last_seen"] = u_dict["last_seen"].strftime("%Y-%m-%d %H:%M:%S")
+    if u_dict.get("created_at"):
+        u_dict["created_at"] = format_datetime_utc(u_dict["created_at"])
+    if u_dict.get("last_seen"):
+        u_dict["last_seen"] = format_datetime_utc(u_dict["last_seen"])
 
     socketio.emit("user_profile_updated", {
         "user_id": user_id,
@@ -456,7 +468,7 @@ def get_friend_requests():
     for r in rows:
         item = dict(r)
         if item.get("created_at"):
-            item["created_at"] = str(item["created_at"])
+            item["created_at"] = format_datetime_utc(item["created_at"])
         res.append(item)
     return jsonify(res)
 
@@ -562,6 +574,8 @@ def get_conversations():
         conv = dict(row)
         conv["last_message"] = parse_json_or_dict(conv["last_message_json"])
         del conv["last_message_json"]
+        if conv["last_message"] and conv["last_message"].get("created_at"):
+            conv["last_message"]["created_at"] = format_datetime_utc(conv["last_message"]["created_at"])
 
         if conv["type"] == "direct":
             other = conn.execute("""
@@ -702,7 +716,12 @@ def get_messages(conv_id):
         JOIN users u ON m.sender_id = u.id
         WHERE pm.conversation_id = ?
     """, (conv_id,)).fetchall()
-    pinned_list = [dict(p) for p in pinned_rows]
+    pinned_list = []
+    for p in pinned_rows:
+        pd = dict(p)
+        if pd.get("pinned_at"):
+            pd["pinned_at"] = format_datetime_utc(pd["pinned_at"])
+        pinned_list.append(pd)
 
     conv_info = conn.execute("SELECT id, type, name, avatar_url FROM conversations WHERE id = ?", (conv_id,)).fetchone()
     participants = conn.execute("""
@@ -715,10 +734,8 @@ def get_messages(conv_id):
     messages = []
     for r in rows:
         msg = dict(r)
-        if msg.get("created_at") and hasattr(msg["created_at"], "strftime"):
-            msg["created_at"] = msg["created_at"].strftime("%Y-%m-%d %H:%M:%S")
-        elif msg.get("created_at"):
-            msg["created_at"] = str(msg["created_at"])
+        if msg.get("created_at"):
+            msg["created_at"] = format_datetime_utc(msg["created_at"])
         msg["reply_to"] = parse_json_or_dict(msg["reply_json"])
         del msg["reply_json"]
         msg["reactions"] = rx_map.get(msg["id"], [])
@@ -771,10 +788,8 @@ def send_message_rest(conv_id):
     """, (msg_id,)).fetchone()
     
     msg_dict = dict(msg)
-    if msg_dict.get("created_at") and hasattr(msg_dict["created_at"], "strftime"):
-        msg_dict["created_at"] = msg_dict["created_at"].strftime("%Y-%m-%d %H:%M:%S")
-    elif msg_dict.get("created_at"):
-        msg_dict["created_at"] = str(msg_dict["created_at"])
+    if msg_dict.get("created_at"):
+        msg_dict["created_at"] = format_datetime_utc(msg_dict["created_at"])
 
     msg_dict["reactions"] = []
     

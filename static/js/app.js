@@ -1857,10 +1857,28 @@ class ChatApp {
         }, 3000);
     }
 
+    toVietnamDate(dateObj) {
+        const d = (dateObj instanceof Date && !isNaN(dateObj.getTime())) ? dateObj : new Date();
+        // Vietnam timezone is strictly UTC+7 (7 hours = 7 * 60 * 60 * 1000 ms)
+        return new Date(d.getTime() + 7 * 60 * 60 * 1000);
+    }
+
     parseDate(val) {
         if (!val) return new Date();
         if (val instanceof Date) return isNaN(val.getTime()) ? new Date() : val;
-        const s = String(val).trim();
+        let s = String(val).trim();
+        if (!s) return new Date();
+
+        // Check if string already has timezone info (Z or +HH:mm or -HH:mm)
+        const hasTimezone = /Z$|[+-]\d{2}(:?\d{2})?$/.test(s);
+        if (!hasTimezone) {
+            // Server timestamps from DB (CURRENT_TIMESTAMP) are in UTC without Z
+            // Format to UTC ISO string: "YYYY-MM-DDTHH:mm:ssZ"
+            const iso = s.replace(" ", "T") + "Z";
+            const dUtc = new Date(iso);
+            if (!isNaN(dUtc.getTime())) return dUtc;
+        }
+
         let d = new Date(s);
         if (!isNaN(d.getTime())) return d;
         d = new Date(s.replace(" ", "T"));
@@ -1874,20 +1892,33 @@ class ChatApp {
         if (!dateStr) return "";
         const d = this.parseDate(dateStr);
         if (isNaN(d.getTime())) return "";
-        const h = d.getHours().toString().padStart(2, "0");
-        const m = d.getMinutes().toString().padStart(2, "0");
-        return `${h}:${m}`;
+        const vn = this.toVietnamDate(d);
+        const nowVn = this.toVietnamDate(new Date());
+
+        const isToday = vn.getUTCFullYear() === nowVn.getUTCFullYear() &&
+                        vn.getUTCMonth() === nowVn.getUTCMonth() &&
+                        vn.getUTCDate() === nowVn.getUTCDate();
+
+        if (isToday) {
+            const h = vn.getUTCHours().toString().padStart(2, "0");
+            const m = vn.getUTCMinutes().toString().padStart(2, "0");
+            return `${h}:${m}`;
+        }
+
+        const day = vn.getUTCDate().toString().padStart(2, "0");
+        const month = (vn.getUTCMonth() + 1).toString().padStart(2, "0");
+        if (vn.getUTCFullYear() === nowVn.getUTCFullYear()) {
+            return `${day}/${month}`;
+        }
+        return `${day}/${month}/${vn.getUTCFullYear()}`;
     }
 
     formatTimeOnly(dateStr) {
         if (!dateStr) return "";
         const d = this.parseDate(dateStr);
-        if (isNaN(d.getTime())) {
-            const now = new Date();
-            return `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
-        }
-        const h = d.getHours().toString().padStart(2, "0");
-        const m = d.getMinutes().toString().padStart(2, "0");
+        const vn = this.toVietnamDate(d);
+        const h = vn.getUTCHours().toString().padStart(2, "0");
+        const m = vn.getUTCMinutes().toString().padStart(2, "0");
         return `${h}:${m}`;
     }
 
@@ -1895,11 +1926,23 @@ class ChatApp {
         if (!dateStr) return "Hôm nay";
         const d = this.parseDate(dateStr);
         if (isNaN(d.getTime())) return "Hôm nay";
-        const now = new Date();
-        if (d.toDateString() === now.toDateString()) {
+        const vn = this.toVietnamDate(d);
+        const nowVn = this.toVietnamDate(new Date());
+
+        if (vn.getUTCFullYear() === nowVn.getUTCFullYear() &&
+            vn.getUTCMonth() === nowVn.getUTCMonth() &&
+            vn.getUTCDate() === nowVn.getUTCDate()) {
             return "Hôm nay";
         }
-        return `${d.getDate()} Tháng ${d.getMonth() + 1}, ${d.getFullYear()}`;
+
+        const yesterdayVn = new Date(nowVn.getTime() - 24 * 60 * 60 * 1000);
+        if (vn.getUTCFullYear() === yesterdayVn.getUTCFullYear() &&
+            vn.getUTCMonth() === yesterdayVn.getUTCMonth() &&
+            vn.getUTCDate() === yesterdayVn.getUTCDate()) {
+            return "Hôm qua";
+        }
+
+        return `${vn.getUTCDate()} Tháng ${vn.getUTCMonth() + 1}, ${vn.getUTCFullYear()}`;
     }
 
     async callUserBack(targetUserId, type = "audio") {

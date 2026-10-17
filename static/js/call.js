@@ -73,11 +73,12 @@ class CallManager {
         this.initialized = true;
     }
 
-    // Helper: format current HH:mm
+    // Helper: format current HH:mm in Vietnam Time (UTC+7)
     getCurrentTimeStr() {
-        const d = new Date();
-        const hh = d.getHours().toString().padStart(2, "0");
-        const mm = d.getMinutes().toString().padStart(2, "0");
+        const now = new Date();
+        const vn = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+        const hh = vn.getUTCHours().toString().padStart(2, "0");
+        const mm = vn.getUTCMinutes().toString().padStart(2, "0");
         return `${hh}:${mm}`;
     }
 
