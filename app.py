@@ -7,8 +7,22 @@ from flask import Flask, render_template, request, jsonify, session, send_from_d
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.utils import secure_filename
+import cloudinary
+import cloudinary.uploader
 
 import database
+
+# Cấu hình Cloudinary (Lưu trữ ảnh, video, tệp đính kèm trên cloud)
+CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "pvxzafdu")
+CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY", "446727777933341")
+CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "d0u4aImxcf2JP_8QAwaVg6aF1jg")
+
+cloudinary.config(
+    cloud_name=CLOUDINARY_CLOUD_NAME,
+    api_key=CLOUDINARY_API_KEY,
+    api_secret=CLOUDINARY_API_SECRET,
+    secure=True
+)
 
 class CustomJSON:
     @staticmethod
@@ -1054,32 +1068,67 @@ def upload_file():
         return jsonify({"error": "No selected file"}), 400
 
     filename = secure_filename(file.filename)
-    unique_name = f"{uuid.uuid4().hex[:8]}_{filename}"
-    file_path = os.path.join(app.config["UPLOAD_FOLDER"], unique_name)
-    file.save(file_path)
-
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext in ["jpg", "jpeg", "png", "gif", "webp", "svg"]:
+    if ext in ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"]:
         ftype = "image"
-    elif ext in ["mp3", "wav", "ogg", "webm", "m4a"]:
+    elif ext in ["mp4", "webm", "mov", "avi", "mkv"]:
+        ftype = "video"
+    elif ext in ["mp3", "wav", "ogg", "m4a"]:
         ftype = "audio"
     else:
         ftype = "file"
 
-    size_bytes = os.path.getsize(file_path)
-    if size_bytes < 1024:
-        size_str = f"{size_bytes} B"
-    elif size_bytes < 1024 * 1024:
-        size_str = f"{size_bytes / 1024:.1f} KB"
-    else:
-        size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+    try:
+        # Tải file trực tiếp lên Cloudinary (tự động nhận diện image, video, audio hoặc raw document)
+        upload_result = cloudinary.uploader.upload(
+            file,
+            resource_type="auto",
+            folder="chat_together"
+        )
+        url = upload_result.get("secure_url") or upload_result.get("url")
+        size_bytes = upload_result.get("bytes", 0)
 
-    return jsonify({
-        "url": f"/static/uploads/{unique_name}",
-        "name": filename,
-        "type": ftype,
-        "size": size_str
-    })
+        # Phân loại bổ sung dựa theo Cloudinary
+        cld_res_type = upload_result.get("resource_type")
+        if cld_res_type == "video" and ftype == "file":
+            ftype = "video"
+        elif cld_res_type == "image" and ftype == "file":
+            ftype = "image"
+
+        if size_bytes < 1024:
+            size_str = f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            size_str = f"{size_bytes / 1024:.1f} KB"
+        else:
+            size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+
+        return jsonify({
+            "url": url,
+            "name": filename,
+            "type": ftype,
+            "size": size_str
+        })
+    except Exception as e:
+        print("[Cloudinary Upload Error, fallback to local storage]:", e)
+        unique_name = f"{uuid.uuid4().hex[:8]}_{filename}"
+        file_path = os.path.join(app.config["UPLOAD_FOLDER"], unique_name)
+        file.seek(0)
+        file.save(file_path)
+
+        size_bytes = os.path.getsize(file_path)
+        if size_bytes < 1024:
+            size_str = f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            size_str = f"{size_bytes / 1024:.1f} KB"
+        else:
+            size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+
+        return jsonify({
+            "url": f"/static/uploads/{unique_name}",
+            "name": filename,
+            "type": ftype,
+            "size": size_str
+        })
 
 @app.route("/api/messages/<int:msg_id>/react", methods=["POST"])
 def react_message(msg_id):

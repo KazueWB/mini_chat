@@ -607,7 +607,7 @@ class ChatApp {
             item.dataset.id = conv.id;
 
             const timeStr = conv.last_message ? this.formatRelativeTime(conv.last_message.created_at) : "";
-            const snippetStr = conv.last_message ? (conv.last_message.is_recalled ? "Tin nhắn đã thu hồi" : (conv.last_message.message_type === 'image' ? '📷 [Hình ảnh]' : (conv.last_message.message_type === 'file' ? '📎 [Tệp tin]' : (conv.last_message.message_type === 'audio' ? '🎤 [Tin nhắn thoại]' : conv.last_message.content)))) : "Chưa có tin nhắn";
+            const snippetStr = conv.last_message ? (conv.last_message.is_recalled ? "Tin nhắn đã thu hồi" : (conv.last_message.message_type === 'image' ? '📷 [Hình ảnh]' : (conv.last_message.message_type === 'video' ? '🎥 [Video]' : (conv.last_message.message_type === 'file' ? '📎 [Tệp tin]' : (conv.last_message.message_type === 'audio' ? '🎤 [Tin nhắn thoại]' : conv.last_message.content))))) : "Chưa có tin nhắn";
 
             item.innerHTML = `
                 <div class="conv-avatar-box">
@@ -844,6 +844,12 @@ class ChatApp {
             let mediaHTML = "";
             if (msg.message_type === "image" && msg.media_url) {
                 mediaHTML = `<img src="${msg.media_url}" alt="Ảnh" class="msg-media-img" onclick="window.app.openLightbox('${msg.media_url}')">`;
+            } else if (msg.message_type === "video" && msg.media_url) {
+                mediaHTML = `
+                    <div class="msg-video-card" style="max-width: 320px; border-radius: var(--radius-md); overflow: hidden; margin-top: 4px;">
+                        <video src="${msg.media_url}" controls playsinline preload="metadata" style="width: 100%; max-height: 260px; display: block; background: #000; border-radius: var(--radius-md);"></video>
+                    </div>
+                `;
             } else if (msg.message_type === "file" && msg.media_url) {
                 mediaHTML = `
                     <a href="${msg.media_url}" download="${this.escapeHTML(msg.media_name || 'file')}" class="msg-file-card" target="_blank">
@@ -1256,7 +1262,7 @@ class ChatApp {
                 const pending = this.activeConv.messages.find(m => String(m.id).startsWith("temp_") && m.content === msg.content);
                 if (pending) {
                     this.reconcileOptimisticMessage(pending.id, msg);
-                    if (msg.message_type === "image" || msg.message_type === "file") {
+                    if (msg.message_type === "image" || msg.message_type === "video" || msg.message_type === "file") {
                         this.renderMediaGallery();
                     }
                     return;
@@ -1276,7 +1282,7 @@ class ChatApp {
             }
 
             // Cập nhật ngay lập tức mục Hình ảnh & tệp đã gửi trong thông tin hội thoại
-            if (msg.message_type === "image" || msg.message_type === "file") {
+            if (msg.message_type === "image" || msg.message_type === "video" || msg.message_type === "file") {
                 this.renderMediaGallery();
             }
 
@@ -1367,7 +1373,7 @@ class ChatApp {
                     const newRow = this.createMessageElement(msg);
                     row.replaceWith(newRow);
                 }
-                if (msg.message_type === "image" || msg.message_type === "file") {
+                if (msg.message_type === "image" || msg.message_type === "video" || msg.message_type === "file") {
                     this.renderMediaGallery();
                 }
             }
@@ -1535,13 +1541,23 @@ class ChatApp {
         const messages = this.activeConv.messages || [];
 
         if (this.currentMediaTab === "images") {
-            const images = messages.filter(m => m.message_type === "image" && m.media_url && !m.is_recalled);
-            if (images.length === 0) {
-                this.infoMediaGallery.innerHTML = `<span style="grid-column: span 3; font-size:12px; color:var(--text-muted); text-align:center; padding:10px 0;">Chưa có ảnh nào</span>`;
+            const mediaItems = messages.filter(m => (m.message_type === "image" || m.message_type === "video") && m.media_url && !m.is_recalled);
+            if (mediaItems.length === 0) {
+                this.infoMediaGallery.innerHTML = `<span style="grid-column: span 3; font-size:12px; color:var(--text-muted); text-align:center; padding:10px 0;">Chưa có ảnh/video nào</span>`;
             } else {
-                this.infoMediaGallery.innerHTML = images.map(img => `
-                    <img src="${img.media_url}" alt="Ảnh" class="media-gallery-thumb" onclick="window.app.openLightbox('${img.media_url}')">
-                `).join("");
+                this.infoMediaGallery.innerHTML = mediaItems.map(item => {
+                    if (item.message_type === "video") {
+                        return `
+                            <div class="media-gallery-video-thumb" style="position:relative; width:100%; aspect-ratio:1/1; cursor:pointer; border-radius:var(--radius-sm); overflow:hidden;" onclick="window.open('${item.media_url}', '_blank')">
+                                <video src="${item.media_url}" style="width:100%; height:100%; object-fit:cover; pointer-events:none;"></video>
+                                <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.35); color:#ffffff; font-size:16px;">
+                                    <i class="fa-solid fa-play"></i>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    return `<img src="${item.media_url}" alt="Ảnh" class="media-gallery-thumb" onclick="window.app.openLightbox('${item.media_url}')">`;
+                }).join("");
             }
         } else {
             const files = messages.filter(m => m.message_type === "file" && m.media_url && !m.is_recalled);
