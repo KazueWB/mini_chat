@@ -17,6 +17,13 @@ class ChatApp {
         this.mediaRecorder = null;
         this.audioChunks = [];
         this.searchQuery = "";
+        this.pendingMessagesMap = new Map(); // tempId -> { type, convId, payload, ... }
+
+        // Tự động thử gửi lại các tin nhắn bị lỗi khi có mạng trở lại
+        window.addEventListener("online", () => {
+            console.log("[Network] Đã kết nối mạng trở lại, tự động thử gửi lại các tin nhắn lỗi...");
+            this.autoRetryFailedMessages();
+        });
 
         // Global image error handler: automatically fallback to cute Dicebear avatar so broken image icons never appear
         window.addEventListener("error", (e) => {
@@ -786,13 +793,53 @@ class ChatApp {
         });
     }
 
+    renderStatusTick(status, isPending = false, isFailed = false, tempId = null) {
+        if (isFailed) {
+            return `
+                <span class="msg-status-tick failed" onclick="event.stopPropagation(); window.app.retrySendMessage('${tempId}')" title="Gửi thất bại - Nhấn để gửi lại">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                    <span class="retry-hint">Lỗi. Nhấn để gửi lại</span>
+                </span>
+            `;
+        }
+        if (isPending) {
+            return `
+                <span class="msg-status-tick pending" title="Đang gửi...">
+                    <i class="fa-regular fa-clock"></i>
+                </span>
+            `;
+        }
+        if (status === "sent") {
+            return `
+                <span class="msg-status-tick sent" title="Đã gửi (Đối phương chưa trực tuyến)">
+                    <i class="fa-solid fa-check"></i>
+                </span>
+            `;
+        }
+        if (status === "delivered") {
+            return `
+                <span class="msg-status-tick delivered" title="Đã nhận (Đối phương đang hoạt động)">
+                    <i class="fa-solid fa-check-double"></i>
+                </span>
+            `;
+        }
+        // status === "read" hoặc mặc định
+        return `
+            <span class="msg-status-tick read" title="Đã xem">
+                <i class="fa-solid fa-check-double"></i>
+            </span>
+        `;
+    }
+
     createMessageElement(msg) {
         const row = document.createElement("div");
         const isMe = msg.sender_id === this.currentUser.id;
         const isSystem = msg.message_type === "system";
+        const isFailed = !!msg.is_failed;
+        const isPending = !!msg.is_pending;
 
         row.id = `msg-${msg.id}`;
-        row.className = `msg-row ${isSystem ? 'system' : (isMe ? 'outgoing' : 'incoming')} ${msg.is_pending ? 'msg-pending' : ''}`;
+        row.className = `msg-row ${isSystem ? 'system' : (isMe ? 'outgoing' : 'incoming')} ${isPending ? 'msg-pending' : ''} ${isFailed ? 'msg-failed-row' : ''}`;
 
         if (isSystem) {
             row.innerHTML = `<div class="msg-system-bubble">${this.escapeHTML(msg.content)}</div>`;
@@ -911,7 +958,7 @@ class ChatApp {
                 </div>
                 <div class="msg-meta">
                     <span>${timeStr}</span>
-                    ${isMe ? `<span class="msg-status-tick">${msg.is_pending ? '<i class="fa-regular fa-clock" style="font-size:10px; opacity:0.65;" title="Đang gửi..."></i>' : '<i class="fa-solid fa-check-double"></i>'}</span>` : ''}
+                    ${isMe ? this.renderStatusTick(msg.delivery_status || 'delivered', isPending, isFailed, msg.id) : ''}
                 </div>
             </div>
         `;
@@ -942,6 +989,8 @@ class ChatApp {
         const myPart = this.activeConv.participants?.find(p => p.id === this.currentUser.id);
         const myName = (myPart && myPart.nickname && myPart.nickname.trim()) ? myPart.nickname.trim() : this.currentUser.display_name;
 
+        const isOnline = navigator.onLine;
+
         // 1. Generate temp optimistic message
         const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
         const optimisticMsg = {
@@ -960,7 +1009,9 @@ class ChatApp {
             } : null,
             reactions: [],
             created_at: new Date().toISOString(),
-            is_pending: true
+            is_pending: isOnline,
+            is_failed: !isOnline,
+            delivery_status: isOnline ? "pending" : "failed"
         };
 
         const payload = {
@@ -968,6 +1019,14 @@ class ChatApp {
             message_type: "text",
             reply_to_id: this.replyTarget ? this.replyTarget.id : null
         };
+
+        // Lưu vào pending map để thử lại khi có mạng hoặc người dùng ấn "Lỗi. Nhấn để gửi lại"
+        this.pendingMessagesMap.set(tempId, {
+            type: "text",
+            convId: convId,
+            payload: payload,
+            tempId: tempId
+        });
 
         // 2. Clear input & reset state INSTANTLY (0ms)
         this.messageInput.value = "";
@@ -995,6 +1054,12 @@ class ChatApp {
             this.renderConversations();
         }
 
+        // Nếu thiết bị đang mất mạng: dừng lại tại đây (tin nhắn đã hiển thị lỗi đỏ + thông báo nhấn gửi lại)
+        if (!isOnline) {
+            console.warn("[Network] Mất mạng: Đã tạo tin nhắn dạng lỗi để người dùng ấn gửi lại");
+            return;
+        }
+
         // 5. Send to server in background
         try {
             const res = await fetch(`/api/conversations/${convId}/messages`, {
@@ -1002,18 +1067,116 @@ class ChatApp {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             });
+            if (!res.ok) throw new Error("Gửi tin nhắn thất bại HTTP " + res.status);
             const realMsg = await res.json();
             if (realMsg && realMsg.id) {
+                this.pendingMessagesMap.delete(tempId);
                 this.reconcileOptimisticMessage(tempId, realMsg);
             }
         } catch (err) {
             console.error("Failed to send message:", err);
             const el = document.getElementById(`msg-${tempId}`);
             if (el) {
-                el.classList.add("msg-failed");
-                const tick = el.querySelector(".msg-status-tick");
-                if (tick) tick.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;" title="Gửi thất bại"></i>';
+                el.classList.add("msg-failed-row");
+                el.classList.remove("msg-pending");
+                const meta = el.querySelector(".msg-meta");
+                if (meta) {
+                    const tick = meta.querySelector(".msg-status-tick");
+                    if (tick) {
+                        tick.outerHTML = this.renderStatusTick("failed", false, true, tempId);
+                    }
+                }
             }
+        }
+    }
+
+    async retrySendMessage(tempId) {
+        const item = this.pendingMessagesMap.get(tempId);
+        if (!item) return;
+
+        const el = document.getElementById(`msg-${tempId}`);
+        if (el) {
+            el.classList.remove("msg-failed-row");
+            el.classList.add("msg-pending");
+            const meta = el.querySelector(".msg-meta");
+            if (meta) {
+                const tick = meta.querySelector(".msg-status-tick");
+                if (tick) {
+                    tick.outerHTML = this.renderStatusTick("pending", true, false, tempId);
+                }
+            }
+        }
+
+        if (!navigator.onLine) {
+            setTimeout(() => {
+                if (el) {
+                    el.classList.add("msg-failed-row");
+                    el.classList.remove("msg-pending");
+                    const meta = el.querySelector(".msg-meta");
+                    if (meta) {
+                        const tick = meta.querySelector(".msg-status-tick");
+                        if (tick) {
+                            tick.outerHTML = this.renderStatusTick("failed", false, true, tempId);
+                        }
+                    }
+                }
+            }, 300);
+            return;
+        }
+
+        try {
+            let res;
+            if (item.type === "text") {
+                res = await fetch(`/api/conversations/${item.convId}/messages`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(item.payload)
+                });
+            } else if (item.type === "file") {
+                const formData = new FormData();
+                formData.append("file", item.file);
+                const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
+                const uploadData = await uploadRes.json();
+                if (uploadData.error) throw new Error(uploadData.error);
+                const payload = {
+                    content: "",
+                    message_type: uploadData.type,
+                    media_url: uploadData.url,
+                    media_name: uploadData.name,
+                    media_size: uploadData.size,
+                    reply_to_id: item.replyToId || null
+                };
+                res = await fetch(`/api/conversations/${item.convId}/messages`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+            }
+            if (!res.ok) throw new Error("HTTP error " + res.status);
+            const realMsg = await res.json();
+            if (realMsg && realMsg.id) {
+                this.pendingMessagesMap.delete(tempId);
+                this.reconcileOptimisticMessage(tempId, realMsg);
+            }
+        } catch (err) {
+            console.error("[Retry Send Error]:", err);
+            if (el) {
+                el.classList.add("msg-failed-row");
+                el.classList.remove("msg-pending");
+                const meta = el.querySelector(".msg-meta");
+                if (meta) {
+                    const tick = meta.querySelector(".msg-status-tick");
+                    if (tick) {
+                        tick.outerHTML = this.renderStatusTick("failed", false, true, tempId);
+                    }
+                }
+            }
+        }
+    }
+
+    autoRetryFailedMessages() {
+        for (const tempId of Array.from(this.pendingMessagesMap.keys())) {
+            this.retrySendMessage(tempId);
         }
     }
 
@@ -1023,8 +1186,11 @@ class ChatApp {
         if (el) {
             el.id = `msg-${realMsg.id}`;
             el.classList.remove("msg-pending");
+            el.classList.remove("msg-failed-row");
             const tick = el.querySelector(".msg-status-tick");
-            if (tick) tick.innerHTML = '<i class="fa-solid fa-check-double"></i>';
+            if (tick) {
+                tick.outerHTML = this.renderStatusTick(realMsg.delivery_status || 'delivered', false, false, realMsg.id);
+            }
 
             // Update action buttons with real ID
             const actionBtns = el.querySelectorAll(".action-tool-btn");
@@ -1071,6 +1237,61 @@ class ChatApp {
         if (!file || !this.activeConv) return;
         const convId = this.activeConv.conversation.id;
 
+        const myPart = this.activeConv.participants?.find(p => p.id === this.currentUser.id);
+        const myName = (myPart && myPart.nickname && myPart.nickname.trim()) ? myPart.nickname.trim() : this.currentUser.display_name;
+
+        const isOnline = navigator.onLine;
+        const tempId = `temp_file_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+        const isImg = file.type.startsWith("image/");
+        const isVid = file.type.startsWith("video/");
+        const isAud = file.type.startsWith("audio/");
+        let fileType = "file";
+        if (isImg) fileType = "image";
+        else if (isVid) fileType = "video";
+        else if (isAud) fileType = "audio";
+
+        const tempUrl = (isImg || isVid || isAud) ? URL.createObjectURL(file) : null;
+
+        const optimisticMsg = {
+            id: tempId,
+            conversation_id: convId,
+            sender_id: this.currentUser.id,
+            sender_name: myName,
+            sender_avatar: this.currentUser.avatar_url,
+            content: "",
+            message_type: fileType,
+            media_url: tempUrl,
+            media_name: file.name,
+            media_size: (file.size / 1024 > 1024 ? (file.size / (1024 * 1024)).toFixed(1) + ' MB' : (file.size / 1024).toFixed(0) + ' KB'),
+            reply_to: this.replyTarget ? { ...this.replyTarget } : null,
+            reactions: [],
+            created_at: new Date().toISOString(),
+            is_pending: isOnline,
+            is_failed: !isOnline,
+            delivery_status: isOnline ? "pending" : "failed"
+        };
+
+        this.pendingMessagesMap.set(tempId, {
+            type: "file",
+            convId: convId,
+            file: file,
+            tempId: tempId,
+            replyToId: this.replyTarget ? this.replyTarget.id : null
+        });
+
+        // Hiển thị ngay lập tức lên khung chat
+        if (!this.activeConv.messages) this.activeConv.messages = [];
+        this.activeConv.messages.push(optimisticMsg);
+        const row = this.createMessageElement(optimisticMsg);
+        this.messagesStream.appendChild(row);
+        this.scrollToBottom();
+        this.cancelReply();
+
+        if (!isOnline) {
+            console.warn("[Upload] Mất mạng: File hiển thị trạng thái lỗi để người dùng gửi lại");
+            return;
+        }
+
         const formData = new FormData();
         formData.append("file", file);
 
@@ -1080,10 +1301,7 @@ class ChatApp {
                 body: formData
             });
             const uploadData = await uploadRes.json();
-            if (uploadData.error) {
-                alert("Tải tệp thất bại: " + uploadData.error);
-                return;
-            }
+            if (uploadData.error) throw new Error(uploadData.error);
 
             const payload = {
                 content: "",
@@ -1091,7 +1309,7 @@ class ChatApp {
                 media_url: uploadData.url,
                 media_name: uploadData.name,
                 media_size: uploadData.size,
-                reply_to_id: this.replyTarget ? this.replyTarget.id : null
+                reply_to_id: this.pendingMessagesMap.get(tempId)?.replyToId || null
             };
 
             const msgRes = await fetch(`/api/conversations/${convId}/messages`, {
@@ -1099,25 +1317,29 @@ class ChatApp {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             });
+            if (!msgRes.ok) throw new Error("Gửi tin nhắn đính kèm thất bại: " + msgRes.status);
             const createdMsg = await msgRes.json();
 
-            // Hiển thị ngay lập tức trong khung chat và mục Hình ảnh & tệp đã gửi
-            if (createdMsg && createdMsg.id && this.activeConv && this.activeConv.conversation.id == convId) {
-                if (!this.activeConv.messages.some(m => m.id == createdMsg.id)) {
-                    this.activeConv.messages.push(createdMsg);
-                }
-                if (!document.getElementById(`msg-${createdMsg.id}`)) {
-                    const row = this.createMessageElement(createdMsg);
-                    this.messagesStream.appendChild(row);
-                    this.scrollToBottom();
-                }
+            this.pendingMessagesMap.delete(tempId);
+            this.reconcileOptimisticMessage(tempId, createdMsg);
+            if (createdMsg.message_type === "image" || createdMsg.message_type === "video" || createdMsg.message_type === "file") {
                 this.renderMediaGallery();
             }
-
             window.soundManager.playSent();
-            this.cancelReply();
         } catch (err) {
             console.error("Failed to upload and send file:", err);
+            const el = document.getElementById(`msg-${tempId}`);
+            if (el) {
+                el.classList.add("msg-failed-row");
+                el.classList.remove("msg-pending");
+                const meta = el.querySelector(".msg-meta");
+                if (meta) {
+                    const tick = meta.querySelector(".msg-status-tick");
+                    if (tick) {
+                        tick.outerHTML = this.renderStatusTick("failed", false, true, tempId);
+                    }
+                }
+            }
         }
     }
 
@@ -1288,6 +1510,8 @@ class ChatApp {
 
             if (msg.sender_id !== this.currentUser.id) {
                 window.soundManager.playReceived();
+                // Vì người dùng đang mở xem cuộc trò chuyện này, tự động đánh dấu đã đọc
+                window.chatSocket.markRead(msg.conversation_id, msg.id);
             }
         }
 
@@ -1316,6 +1540,61 @@ class ChatApp {
         } else {
             this.loadConversations();
         }
+    }
+
+    handleMessagesRead(data) {
+        if (!data || !this.activeConv || this.activeConv.conversation.id != data.conversation_id) return;
+        const lastReadId = data.last_read_id;
+        if (!lastReadId) return;
+
+        // Cập nhật trạng thái trong bộ nhớ activeConv
+        if (this.activeConv.messages) {
+            this.activeConv.messages.forEach(m => {
+                if (m.sender_id === this.currentUser.id && m.id <= lastReadId) {
+                    m.delivery_status = "read";
+                }
+            });
+        }
+
+        // Cập nhật các tick của tin nhắn của tôi sang 2 tích xanh (read)
+        const outgoingRows = this.messagesStream.querySelectorAll(".msg-row.outgoing");
+        outgoingRows.forEach(row => {
+            const mIdStr = row.id.replace("msg-", "");
+            const mId = parseInt(mIdStr);
+            if (mId && mId <= lastReadId) {
+                const tickEl = row.querySelector(".msg-status-tick");
+                if (tickEl && !tickEl.classList.contains("failed") && !tickEl.classList.contains("pending")) {
+                    tickEl.outerHTML = this.renderStatusTick("read", false, false, mId);
+                }
+            }
+        });
+    }
+
+    handleMessagesDelivered(data) {
+        if (!data || !this.activeConv || !data.user_id) return;
+        // Kiểm tra xem user vừa online có phải là người tham gia trong hội thoại này không
+        const isParticipant = this.activeConv.participants?.some(p => p.id === data.user_id && p.id !== this.currentUser.id);
+        if (!isParticipant) return;
+
+        // Cập nhật trong bộ nhớ
+        if (this.activeConv.messages) {
+            this.activeConv.messages.forEach(m => {
+                if (m.sender_id === this.currentUser.id && m.delivery_status === "sent") {
+                    m.delivery_status = "delivered";
+                }
+            });
+        }
+
+        // Cập nhật các tick đang là 1 tick xám (sent) thành 2 tick xám (delivered)
+        const outgoingRows = this.messagesStream.querySelectorAll(".msg-row.outgoing");
+        outgoingRows.forEach(row => {
+            const tickEl = row.querySelector(".msg-status-tick.sent");
+            if (tickEl) {
+                const mIdStr = row.id.replace("msg-", "");
+                const mId = parseInt(mIdStr);
+                tickEl.outerHTML = this.renderStatusTick("delivered", false, false, mId);
+            }
+        });
     }
 
     handleConversationUpdated(data) {

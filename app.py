@@ -738,6 +738,12 @@ def get_messages(conv_id):
     if last_msg and last_msg["max_id"]:
         conn.execute("UPDATE participants SET last_read_message_id = ? WHERE conversation_id = ? AND user_id = ?", (last_msg["max_id"], conv_id, user_id))
         conn.commit()
+        # Thông báo cho đối phương biết mình đã đọc tin nhắn trong hội thoại này
+        socketio.emit("messages_read", {
+            "conversation_id": conv_id,
+            "reader_id": user_id,
+            "last_read_id": last_msg["max_id"]
+        }, room=f"conv_{conv_id}")
 
     query = """
     SELECT 
@@ -804,13 +810,14 @@ def get_messages(conv_id):
 
     conv_info = conn.execute("SELECT id, type, name, avatar_url FROM conversations WHERE id = ?", (conv_id,)).fetchone()
     participants = conn.execute("""
-        SELECT u.id, u.display_name, u.avatar_url, u.status, u.bio, u.last_seen, p.role, p.nickname
+        SELECT u.id, u.display_name, u.avatar_url, u.status, u.bio, u.last_seen, p.role, p.nickname, p.last_read_message_id
         FROM participants p
         JOIN users u ON p.user_id = u.id
         WHERE p.conversation_id = ?
     """, (conv_id,)).fetchall()
     
     participants_list = []
+    part_reads = {}
     for p in participants:
         pd = dict(p)
         if pd.get("last_seen"):
@@ -819,17 +826,19 @@ def get_messages(conv_id):
         pd["nickname"] = nick
         pd["original_display_name"] = pd["display_name"]
         pd["effective_name"] = nick if nick else pd["display_name"]
+        part_reads[pd["id"]] = pd.get("last_read_message_id") or 0
         participants_list.append(pd)
 
     friendship_info = None
+    other_uid = None
     if conv_info["type"] == "direct":
         other_part = [p for p in participants_list if p["id"] != user_id]
         if other_part:
-            other_id = other_part[0]["id"]
+            other_uid = other_part[0]["id"]
             f_row = conn.execute("""
                 SELECT status, created_at, updated_at FROM friendships
                 WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
-            """, (user_id, other_id, other_id, user_id)).fetchone()
+            """, (user_id, other_uid, other_uid, user_id)).fetchone()
             if f_row and f_row["status"] == "accepted":
                 friended_time = f_row["updated_at"] or f_row["created_at"]
                 friendship_info = {
@@ -855,6 +864,33 @@ def get_messages(conv_id):
         msg["reply_to"] = parse_json_or_dict(msg["reply_json"])
         del msg["reply_json"]
         msg["reactions"] = rx_map.get(msg["id"], [])
+
+        # Xác định trạng thái của tin nhắn:
+        sender_id = msg["sender_id"]
+        msg_id = msg["id"]
+        if conv_info["type"] == "direct":
+            if other_uid:
+                target_uid = other_uid if sender_id == user_id else user_id
+                target_read = part_reads.get(target_uid, 0)
+                is_target_online = (target_uid in user_connected_sids and len(user_connected_sids[target_uid]) > 0)
+                if target_read >= msg_id:
+                    msg["delivery_status"] = "read"
+                elif is_target_online:
+                    msg["delivery_status"] = "delivered"
+                else:
+                    msg["delivery_status"] = "sent"
+            else:
+                msg["delivery_status"] = "read"
+        else:
+            # Group chat
+            others = [p for p in participants_list if p["id"] != sender_id]
+            if others and all(part_reads.get(p["id"], 0) >= msg_id for p in others):
+                msg["delivery_status"] = "read"
+            elif any(p["id"] in user_connected_sids and len(user_connected_sids[p["id"]]) > 0 for p in others):
+                msg["delivery_status"] = "delivered"
+            else:
+                msg["delivery_status"] = "sent"
+
         messages.append(msg)
 
     conn.close()
@@ -935,6 +971,37 @@ def send_message_rest(conv_id):
         msg_dict["reply_to"] = None
 
     participants = conn.execute("SELECT user_id FROM participants WHERE conversation_id = ?", (conv_id,)).fetchall()
+    other_ids = [p["user_id"] for p in participants if p["user_id"] != user_id]
+
+    viewing_set = conv_viewing_users.get(conv_id, set())
+
+    # Tính trạng thái chuyển phát (delivery_status):
+    # 'read' (2 tích xanh), 'delivered' (2 tích xám), 'sent' (1 tích xám)
+    if len(other_ids) == 1:
+        other_uid = other_ids[0]
+        if other_uid in viewing_set:
+            msg_dict["delivery_status"] = "read"
+            conn.execute("UPDATE participants SET last_read_message_id = ? WHERE conversation_id = ? AND user_id = ?", (msg_id, conv_id, other_uid))
+            conn.commit()
+        elif other_uid in user_connected_sids and len(user_connected_sids[other_uid]) > 0:
+            msg_dict["delivery_status"] = "delivered"
+        else:
+            msg_dict["delivery_status"] = "sent"
+    elif len(other_ids) > 1:
+        all_viewing = all(oid in viewing_set for oid in other_ids)
+        any_online = any(oid in user_connected_sids and len(user_connected_sids[oid]) > 0 for oid in other_ids)
+        if all_viewing:
+            msg_dict["delivery_status"] = "read"
+            for oid in other_ids:
+                conn.execute("UPDATE participants SET last_read_message_id = ? WHERE conversation_id = ? AND user_id = ?", (msg_id, conv_id, oid))
+            conn.commit()
+        elif any_online:
+            msg_dict["delivery_status"] = "delivered"
+        else:
+            msg_dict["delivery_status"] = "sent"
+    else:
+        msg_dict["delivery_status"] = "read"
+
     conn.close()
 
     # Realtime emit to conversation room (all active chatters receive the new message)
@@ -1238,6 +1305,7 @@ def pin_message(conv_id, msg_id):
 # ----------------- SOCKET.IO REALTIME EVENTS -----------------
 sid_to_user = {}
 user_connected_sids = {}
+conv_viewing_users = {}  # conv_id (int) -> set of user_id (int)
 
 def check_user_offline(uid):
     if uid not in user_connected_sids or len(user_connected_sids[uid]) == 0:
@@ -1268,13 +1336,22 @@ def on_disconnect():
             timer = threading.Timer(2.0, check_user_offline, args=[user_id])
             timer.daemon = True
             timer.start()
+            # Xóa user khỏi các conversation đang xem nếu không còn phiên kết nối nào
+            for cid in list(conv_viewing_users.keys()):
+                conv_viewing_users[cid].discard(user_id)
 
 @socketio.on("join")
 def on_join(data):
     user_id = data.get("user_id")
     conv_id = data.get("conversation_id")
     if conv_id:
-        join_room(f"conv_{conv_id}")
+        try:
+            cid = int(conv_id)
+            join_room(f"conv_{cid}")
+            if user_id:
+                conv_viewing_users.setdefault(cid, set()).add(int(user_id))
+        except Exception:
+            pass
     if user_id:
         try:
             uid = int(user_id)
@@ -1298,6 +1375,10 @@ def on_join(data):
                     "status": "online",
                     "last_seen": last_seen_val
                 })
+                # Báo cho client: User đã online -> tin nhắn 'sent' gửi cho user này chuyển thành 'delivered' (2 tích xám)
+                socketio.emit("messages_delivered", {
+                    "user_id": uid
+                })
         except Exception as e:
             print("[Presence] Error on join:", e)
 
@@ -1317,8 +1398,44 @@ def on_heartbeat(data):
 @socketio.on("leave")
 def on_leave(data):
     conv_id = data.get("conversation_id")
+    user_id = data.get("user_id") or sid_to_user.get(request.sid)
     if conv_id:
-        leave_room(f"conv_{conv_id}")
+        try:
+            cid = int(conv_id)
+            leave_room(f"conv_{cid}")
+            if user_id and cid in conv_viewing_users:
+                conv_viewing_users[cid].discard(int(user_id))
+        except Exception:
+            pass
+
+@socketio.on("mark_read")
+def on_mark_read(data):
+    conv_id = data.get("conversation_id")
+    user_id = data.get("user_id") or sid_to_user.get(request.sid)
+    last_msg_id = data.get("message_id")
+    if not conv_id or not user_id:
+        return
+    try:
+        cid = int(conv_id)
+        uid = int(user_id)
+        conn = database.get_db()
+        if not last_msg_id:
+            row = conn.execute("SELECT MAX(id) as max_id FROM messages WHERE conversation_id = ?", (cid,)).fetchone()
+            last_msg_id = row["max_id"] if row and row["max_id"] else 0
+        else:
+            last_msg_id = int(last_msg_id)
+
+        if last_msg_id:
+            conn.execute("UPDATE participants SET last_read_message_id = MAX(COALESCE(last_read_message_id, 0), ?) WHERE conversation_id = ? AND user_id = ?", (last_msg_id, cid, uid))
+            conn.commit()
+            socketio.emit("messages_read", {
+                "conversation_id": cid,
+                "reader_id": uid,
+                "last_read_id": last_msg_id
+            }, room=f"conv_{cid}")
+        conn.close()
+    except Exception as e:
+        print("[Socket mark_read] Error:", e)
 
 @socketio.on("typing")
 def on_typing(data):

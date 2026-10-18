@@ -119,10 +119,33 @@ class ChatSocket {
             }
         });
 
+        this.socket.on("messages_read", (data) => {
+            console.log("[Socket] messages_read:", data);
+            if (window.app && window.app.handleMessagesRead) {
+                window.app.handleMessagesRead(data);
+            }
+        });
+
+        this.socket.on("messages_delivered", (data) => {
+            console.log("[Socket] messages_delivered:", data);
+            if (window.app && window.app.handleMessagesDelivered) {
+                window.app.handleMessagesDelivered(data);
+            }
+        });
+
         this.socket.on("call_signal", (data) => {
             if (window.callManager) {
                 window.callManager.handleSignal(data);
             }
+        });
+    }
+
+    markRead(convId, messageId = null) {
+        if (!this.socket || !this.userId || !convId) return;
+        this.socket.emit("mark_read", {
+            conversation_id: convId,
+            user_id: this.userId,
+            message_id: messageId
         });
     }
 
