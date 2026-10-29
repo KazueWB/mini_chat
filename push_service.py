@@ -102,10 +102,15 @@ def send_push_to_user(user_id, title, body, icon=None, data=None, actions=None, 
     Gửi thông báo đẩy bất đồng bộ (background thread) tới tất cả các thiết bị đã đăng ký của user_id.
     Hoạt động ngay cả khi người dùng tắt web, khóa màn hình điện thoại (chỉ cần có Wifi/4G).
     """
+    # Trình duyệt Android / Mobile không hỗ trợ ảnh SVG làm Web Notification Icon
+    valid_icon = icon
+    if not valid_icon or ".svg" in str(valid_icon).lower() or not (str(valid_icon).startswith("http") or str(valid_icon).startswith("/")):
+        valid_icon = "/static/img/icon-192.png"
+
     payload = {
         "title": title,
         "body": body,
-        "icon": icon or "/static/img/icon-192.png",
+        "icon": valid_icon,
         "badge": "/static/img/icon-192.png",
         "data": data or {},
         "actions": actions or [],
@@ -114,11 +119,11 @@ def send_push_to_user(user_id, title, body, icon=None, data=None, actions=None, 
     }
 
     if require_interaction:
-        payload["vibrate"] = [400, 200, 400, 200, 800, 400, 800]
+        payload["vibrate"] = [600, 300, 600, 300, 1000, 500, 600, 300, 600]
         payload["tag"] = f"call_{data.get('conv_id', 'general')}"
         payload["renotify"] = True
     else:
-        payload["vibrate"] = [150, 80, 150]
+        payload["vibrate"] = [200, 100, 200]
         payload["tag"] = f"msg_{data.get('conv_id', 'general')}"
 
     payload_str = json.dumps(payload, ensure_ascii=False)

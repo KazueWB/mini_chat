@@ -25,6 +25,16 @@ class ChatApp {
             this.autoRetryFailedMessages();
         });
 
+        // Dừng nhấp nháy tab khi người dùng quay lại ứng dụng
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden) {
+                this.stopMsgTitleBlink();
+            }
+        });
+        window.addEventListener("focus", () => {
+            this.stopMsgTitleBlink();
+        });
+
         // Global image error handler: automatically fallback to cute Dicebear avatar so broken image icons never appear
         window.addEventListener("error", (e) => {
             if (e.target && e.target.tagName === "IMG") {
@@ -1482,13 +1492,101 @@ class ChatApp {
         }
     }
 
+    // ---------------- NOTIFICATIONS, VIBRATION & TITLE BLINK (ZALO / MESSENGER STYLE) ----------------
+    startMsgTitleBlink(senderName) {
+        if (!this.originalDocumentTitle) {
+            this.originalDocumentTitle = document.title || "Chat Together";
+        }
+        if (this.msgBlinkInterval) clearInterval(this.msgBlinkInterval);
+        let toggle = false;
+        const text = `💬 (1) Tin nhắn từ ${senderName || 'Bạn bè'}`;
+        this.msgBlinkInterval = setInterval(() => {
+            document.title = toggle ? text : `🔔 ${this.originalDocumentTitle}`;
+            toggle = !toggle;
+        }, 1200);
+    }
+
+    stopMsgTitleBlink() {
+        if (this.msgBlinkInterval) {
+            clearInterval(this.msgBlinkInterval);
+            this.msgBlinkInterval = null;
+        }
+        if (this.originalDocumentTitle) {
+            document.title = this.originalDocumentTitle;
+        }
+    }
+
+    showMessageNotification(msg) {
+        if (!('Notification' in window)) return;
+
+        let bodyText = msg.content || "";
+        if (msg.message_type === "image") bodyText = "📷 [Hình ảnh]";
+        else if (msg.message_type === "video") bodyText = "🎬 [Video]";
+        else if (msg.message_type === "audio") bodyText = "🎤 [Tin nhắn thoại]";
+        else if (msg.message_type === "file") bodyText = `📎 [Tệp] ${msg.media_name || 'Đính kèm'}`;
+        else if (msg.message_type === "call") bodyText = `📞 ${msg.content || 'Cuộc gọi'}`;
+
+        const title = msg.sender_name || "Tin nhắn mới";
+        const options = {
+            body: bodyText,
+            icon: '/static/img/icon-192.png',
+            badge: '/static/img/icon-192.png',
+            tag: `msg_conv_${msg.conversation_id}`,
+            renotify: true,
+            data: {
+                type: 'message',
+                conv_id: msg.conversation_id
+            }
+        };
+
+        const trigger = () => {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.ready.then(reg => {
+                    reg.showNotification(title, options).catch(() => {
+                        this.showWindowMessageNotification(title, options, msg.conversation_id);
+                    });
+                }).catch(() => {
+                    this.showWindowMessageNotification(title, options, msg.conversation_id);
+                });
+            } else {
+                this.showWindowMessageNotification(title, options, msg.conversation_id);
+            }
+        };
+
+        if (Notification.permission === 'granted') {
+            trigger();
+        } else if (Notification.permission === 'default') {
+            Notification.requestPermission().then(perm => {
+                if (perm === 'granted') trigger();
+            });
+        }
+    }
+
+    showWindowMessageNotification(title, options, convId) {
+        try {
+            const notif = new Notification(title, options);
+            notif.onclick = () => {
+                window.focus();
+                notif.close();
+                if (convId) {
+                    this.selectConversation(convId);
+                }
+            };
+        } catch (e) {
+            console.warn('[Notification] Error showing message notif:', e);
+        }
+    }
+
     // ---------------- REALTIME EVENT DISPATCH ----------------
     handleIncomingMessage(msg) {
         if (!msg || !msg.id) return;
 
-        if (this.activeConv && this.activeConv.conversation.id == msg.conversation_id) {
+        const isMe = msg.sender_id === this.currentUser?.id;
+        const isCurrentActive = this.activeConv && this.activeConv.conversation.id == msg.conversation_id;
+
+        if (isCurrentActive) {
             // Check if this is confirming an optimistic temp message sent by current user
-            if (msg.sender_id === this.currentUser.id) {
+            if (isMe) {
                 const pending = this.activeConv.messages.find(m => String(m.id).startsWith("temp_") && m.content === msg.content);
                 if (pending) {
                     this.reconcileOptimisticMessage(pending.id, msg);
@@ -1516,10 +1614,23 @@ class ChatApp {
                 this.renderMediaGallery();
             }
 
-            if (msg.sender_id !== this.currentUser.id) {
+            if (!isMe) {
                 window.soundManager.playReceived();
                 // Vì người dùng đang mở xem cuộc trò chuyện này, tự động đánh dấu đã đọc
                 window.chatSocket.markRead(msg.conversation_id, msg.id);
+            }
+        }
+
+        // Rung thiết bị và thông báo nếu là tin nhắn từ đối phương (chuẩn Zalo / Messenger)
+        if (!isMe) {
+            if ('vibrate' in navigator) {
+                try { navigator.vibrate([150, 80, 150]); } catch (e) {}
+            }
+
+            // Nếu người dùng đang ẩn tab hoặc đang không ở trong phòng chat này
+            if (document.hidden || !isCurrentActive) {
+                this.startMsgTitleBlink(msg.sender_name);
+                this.showMessageNotification(msg);
             }
         }
 

@@ -35,6 +35,12 @@ class CallManager {
         this.btnAccept = null;
         this.btnDecline = null;
 
+        // Notification & Vibration state
+        this.vibrationInterval = null;
+        this.incomingNotification = null;
+        this.originalTitle = document.title;
+        this.titleBlinkInterval = null;
+
         this.initialized = false;
     }
 
@@ -90,6 +96,147 @@ class CallManager {
         const m = Math.floor(secs / 60).toString().padStart(2, "0");
         const s = (secs % 60).toString().padStart(2, "0");
         return `${m}:${s}`;
+    }
+
+    // ---------------- CALL NOTIFICATIONS & VIBRATIONS (ZALO / MESSENGER STYLE) ----------------
+    startCallVibration() {
+        if (!('vibrate' in navigator)) return;
+        try {
+            navigator.vibrate([600, 300, 600, 300, 1000, 500, 600, 300, 600]);
+            if (this.vibrationInterval) clearInterval(this.vibrationInterval);
+            this.vibrationInterval = setInterval(() => {
+                if (this.activeCall && this.activeCall.status === "incoming") {
+                    navigator.vibrate([600, 300, 600, 300, 1000, 500, 600, 300, 600]);
+                } else {
+                    this.stopCallVibration();
+                }
+            }, 5000);
+        } catch (e) {
+            console.warn('[Call] Vibration error:', e);
+        }
+    }
+
+    stopCallVibration() {
+        if (this.vibrationInterval) {
+            clearInterval(this.vibrationInterval);
+            this.vibrationInterval = null;
+        }
+        if ('vibrate' in navigator) {
+            try { navigator.vibrate(0); } catch (e) {}
+        }
+    }
+
+    showCallNotification(data) {
+        if (!('Notification' in window)) return;
+
+        const callerName = data.caller?.display_name || 'Người dùng';
+        const callTypeText = data.type === 'video' ? 'video' : 'thoại';
+        const title = `📞 Cuộc gọi ${callTypeText} đến từ ${callerName}`;
+        const body = `${callerName} đang gọi cho bạn... Bấm để trả lời!`;
+
+        const triggerNotification = () => {
+            try {
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.ready.then(reg => {
+                        reg.showNotification(title, {
+                            body: body,
+                            icon: '/static/img/icon-192.png',
+                            badge: '/static/img/icon-192.png',
+                            tag: 'incoming_call_' + data.call_id,
+                            renotify: true,
+                            requireInteraction: true,
+                            vibrate: [600, 300, 600, 300, 1000, 500, 600, 300, 600],
+                            data: {
+                                type: 'call',
+                                call_id: data.call_id,
+                                conv_id: data.conversation_id,
+                                caller_id: data.caller?.id,
+                                call_type: data.type
+                            },
+                            actions: [
+                                { action: 'answer', title: 'Trả lời 📞' },
+                                { action: 'decline', title: 'Từ chối ❌' }
+                            ]
+                        }).catch(() => {
+                            this.showWindowNotificationFallback(title, body, data);
+                        });
+                    }).catch(() => {
+                        this.showWindowNotificationFallback(title, body, data);
+                    });
+                } else {
+                    this.showWindowNotificationFallback(title, body, data);
+                }
+            } catch (e) {
+                console.warn('[Call] showCallNotification error:', e);
+            }
+        };
+
+        if (Notification.permission === 'granted') {
+            triggerNotification();
+        } else if (Notification.permission === 'default') {
+            Notification.requestPermission().then(perm => {
+                if (perm === 'granted') triggerNotification();
+            });
+        }
+    }
+
+    showWindowNotificationFallback(title, body, data) {
+        try {
+            const notif = new Notification(title, {
+                body: body,
+                icon: '/static/img/icon-192.png',
+                badge: '/static/img/icon-192.png',
+                tag: 'incoming_call_' + data.call_id,
+                requireInteraction: true,
+                vibrate: [600, 300, 600, 300, 1000]
+            });
+            notif.onclick = () => {
+                window.focus();
+                notif.close();
+                this.acceptCall();
+            };
+            this.incomingNotification = notif;
+        } catch (err) {
+            console.warn('[Call] Fallback notification failed:', err);
+        }
+    }
+
+    closeCallNotification() {
+        if (this.incomingNotification) {
+            try { this.incomingNotification.close(); } catch (e) {}
+            this.incomingNotification = null;
+        }
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.ready.then(reg => {
+                reg.getNotifications().then(notifs => {
+                    notifs.forEach(n => {
+                        if (n.tag && n.tag.startsWith('incoming_call_')) {
+                            n.close();
+                        }
+                    });
+                });
+            });
+        }
+    }
+
+    startTitleBlink(text) {
+        if (!this.originalTitle) this.originalTitle = document.title;
+        if (this.titleBlinkInterval) clearInterval(this.titleBlinkInterval);
+        let state = false;
+        this.titleBlinkInterval = setInterval(() => {
+            document.title = state ? text : `🔔 ${this.originalTitle}`;
+            state = !state;
+        }, 900);
+    }
+
+    stopTitleBlink() {
+        if (this.titleBlinkInterval) {
+            clearInterval(this.titleBlinkInterval);
+            this.titleBlinkInterval = null;
+        }
+        if (this.originalTitle) {
+            document.title = this.originalTitle;
+        }
     }
 
     // Helper: Request local audio and optional video stream with echo cancellation & noise suppression
@@ -248,6 +395,12 @@ class CallManager {
 
             window.soundManager.startIncomingRing();
 
+            // Kích hoạt thông báo hệ thống, rung và nhấp nháy tab (chuẩn Zalo / Messenger)
+            this.incomingCallData = data;
+            this.startCallVibration();
+            this.showCallNotification(data);
+            this.startTitleBlink(`📞 Cuộc gọi đến từ ${data.caller.display_name}!`);
+
             // Auto-timeout after 30s on receiver
             this.callTimeoutTimer = setTimeout(() => {
                 if (this.activeCall && this.activeCall.status === "incoming") {
@@ -283,8 +436,12 @@ class CallManager {
             if (this.activeCall && this.activeCall.status === "incoming") {
                 if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
                 window.soundManager.stopIncomingRing();
+                this.stopCallVibration();
+                this.closeCallNotification();
+                this.stopTitleBlink();
                 this.incomingModal.style.display = "none";
                 this.activeCall = null;
+                this.incomingCallData = null;
             }
         }
 
@@ -326,6 +483,9 @@ class CallManager {
         if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
 
         window.soundManager.stopIncomingRing();
+        this.stopCallVibration();
+        this.closeCallNotification();
+        this.stopTitleBlink();
         this.incomingModal.style.display = "none";
 
         const call = this.activeCall;
@@ -371,6 +531,9 @@ class CallManager {
         if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
 
         window.soundManager.stopIncomingRing();
+        this.stopCallVibration();
+        this.closeCallNotification();
+        this.stopTitleBlink();
         this.incomingModal.style.display = "none";
 
         const call = this.activeCall;
@@ -494,6 +657,11 @@ class CallManager {
     }
 
     cleanupCall() {
+        this.stopCallVibration();
+        this.closeCallNotification();
+        this.stopTitleBlink();
+        this.incomingCallData = null;
+
         if (this.timerInterval) {
             clearInterval(this.timerInterval);
             this.timerInterval = null;

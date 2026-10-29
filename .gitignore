@@ -8,5 +8,6 @@ venv/
 .venv/
 chat.db
 vapid_keys.json
+vapid_private.pem
 .DS_Store
 Thumbs.db

@@ -27,12 +27,17 @@ self.addEventListener('push', (event) => {
     const data = payload.data || {};
     const isCall = (data.type === "call");
 
+    let iconUrl = payload.icon || "/static/img/icon-192.png";
+    if (typeof iconUrl === "string" && iconUrl.includes(".svg")) {
+        iconUrl = "/static/img/icon-192.png";
+    }
+
     const options = {
         body: payload.body || "",
-        icon: payload.icon || "/static/img/icon-192.png",
-        badge: payload.badge || "/static/img/icon-192.png",
+        icon: iconUrl,
+        badge: "/static/img/icon-192.png",
         data: data,
-        vibrate: payload.vibrate || (isCall ? [400, 200, 400, 200, 800, 400, 800] : [150, 80, 150]),
+        vibrate: payload.vibrate || (isCall ? [600, 300, 600, 300, 1000, 500, 600, 300, 600] : [200, 100, 200]),
         requireInteraction: isCall ? true : (payload.requireInteraction || false),
         tag: payload.tag || (isCall ? `call_${data.conv_id || 'general'}` : `msg_${data.conv_id || 'general'}`),
         renotify: payload.renotify !== undefined ? payload.renotify : true,
@@ -96,3 +101,4 @@ self.addEventListener('notificationclick', (event) => {
         })
     );
 });
+

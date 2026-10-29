@@ -24,6 +24,24 @@ class PushManagerService {
             // Kiểm tra tham số URL mở từ thông báo cuộc gọi
             this.checkUrlAction();
 
+            // Gắn sự kiện cho nút cài đặt thông báo trên thanh điều hướng
+            const toggleBtn = document.getElementById('btn-push-toggle');
+            if (toggleBtn) {
+                toggleBtn.onclick = async () => {
+                    if (Notification.permission === 'granted') {
+                        const ok = await this.subscribeUser();
+                        if (ok) {
+                            this.showToast('🔔 Thông báo đẩy đang hoạt động tốt trên thiết bị này!');
+                        } else {
+                            this.showToast('⚠️ Vui lòng đăng nhập để bật thông báo.');
+                        }
+                    } else {
+                        await this.requestPermissionAndSubscribe();
+                    }
+                    this.updateToggleButton();
+                };
+            }
+
             // Nếu người dùng đã cấp quyền, đảm bảo subscription được đồng bộ lên server
             if (Notification.permission === 'granted') {
                 await this.subscribeUser();
@@ -31,6 +49,7 @@ class PushManagerService {
                 // Hiển thị banner nhắc bật thông báo để nhận cuộc gọi/tin nhắn khi tắt web
                 setTimeout(() => this.showPermissionBanner(), 2500);
             }
+            this.updateToggleButton();
         } catch (err) {
             console.error('[Push] Lỗi khởi tạo Service Worker:', err);
         }
@@ -88,16 +107,19 @@ class PushManagerService {
 
             console.log('[Push] Đã tạo PushSubscription mới thành công:', subscription);
 
+            const subJson = subscription.toJSON ? subscription.toJSON() : JSON.parse(JSON.stringify(subscription));
+
             // Gửi lên server để lưu vào database
             const res = await fetch('/api/push/subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(subscription)
+                body: JSON.stringify(subJson)
             });
             const result = await res.json();
 
             if (result.success) {
                 this.isSubscribed = true;
+                this.updateToggleButton();
                 console.log('[Push] Đã lưu thông tin đăng ký thông báo đẩy lên máy chủ!');
                 return true;
             }
@@ -105,6 +127,21 @@ class PushManagerService {
             console.error('[Push] Đăng ký Push thất bại:', err);
         }
         return false;
+    }
+
+    updateToggleButton() {
+        const btn = document.getElementById('btn-push-toggle');
+        if (!btn) return;
+        if (Notification.permission === 'granted' && this.isSubscribed) {
+            btn.innerHTML = '<i class="fa-solid fa-bell" style="color:#0084ff;"></i>';
+            btn.title = 'Thông báo: Đang bật (Nhận chuông & tin nhắn khi tắt web)';
+        } else if (Notification.permission === 'denied') {
+            btn.innerHTML = '<i class="fa-solid fa-bell-slash" style="color:#ef4444;"></i>';
+            btn.title = 'Thông báo: Bị chặn trong trình duyệt (Bấm để xem hướng dẫn)';
+        } else {
+            btn.innerHTML = '<i class="fa-regular fa-bell"></i>';
+            btn.title = 'Thông báo: Chưa bật (Bấm để nhận chuông khi có người gọi)';
+        }
     }
 
     async requestPermissionAndSubscribe() {
