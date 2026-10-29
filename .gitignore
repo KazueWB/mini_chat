@@ -7,5 +7,6 @@ env/
 venv/
 .venv/
 chat.db
+vapid_keys.json
 .DS_Store
 Thumbs.db

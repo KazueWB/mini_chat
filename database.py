@@ -183,6 +183,14 @@ def init_db():
             pinned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(conversation_id, message_id)
         );
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id SERIAL PRIMARY KEY,
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            endpoint TEXT NOT NULL UNIQUE,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
         ALTER TABLE participants ADD COLUMN IF NOT EXISTS nickname VARCHAR(100) DEFAULT '';
 
         CREATE INDEX IF NOT EXISTS idx_messages_conv_id ON messages(conversation_id, id);
@@ -192,6 +200,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_reactions_msg ON reactions(message_id);
         CREATE INDEX IF NOT EXISTS idx_pinned_conv ON pinned_messages(conversation_id);
         CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(sender_id, receiver_id, status);
+        CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
         """)
         conn.commit()
         conn.close()
@@ -282,6 +291,15 @@ def init_db():
             FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
             FOREIGN KEY (pinned_by) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            endpoint TEXT NOT NULL UNIQUE,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
 
         CREATE INDEX IF NOT EXISTS idx_messages_conv_id ON messages(conversation_id, id);
         CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
@@ -290,6 +308,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_reactions_msg ON reactions(message_id);
         CREATE INDEX IF NOT EXISTS idx_pinned_conv ON pinned_messages(conversation_id);
         CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(sender_id, receiver_id, status);
+        CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
         """)
         try:
             cursor.execute("ALTER TABLE participants ADD COLUMN nickname TEXT DEFAULT ''")

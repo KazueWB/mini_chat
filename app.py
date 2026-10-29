@@ -3,7 +3,7 @@ import json
 import uuid
 import threading
 from datetime import datetime, date
-from flask import Flask, render_template, request, jsonify, session, send_from_directory
+from flask import Flask, render_template, request, jsonify, session, send_from_directory, make_response
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.utils import secure_filename
@@ -11,6 +11,7 @@ import cloudinary
 import cloudinary.uploader
 
 import database
+import push_service
 
 # Cấu hình Cloudinary (Lưu trữ ảnh, video, tệp đính kèm trên cloud)
 CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "pvxzafdu")
@@ -121,6 +122,53 @@ def ensure_direct_conversation(conn, u1, u2):
 @app.route("/index.html")
 def index():
     return render_template("index.html")
+
+@app.route("/sw.js")
+def service_worker():
+    response = make_response(send_from_directory("static", "sw.js"))
+    response.headers["Content-Type"] = "application/javascript"
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
+
+@app.route("/manifest.json")
+def manifest():
+    return send_from_directory("static", "manifest.json")
+
+# ----------------- WEB PUSH NOTIFICATION ROUTES -----------------
+@app.route("/api/push/vapid-public-key", methods=["GET"])
+def get_vapid_public_key():
+    return jsonify({"public_key": push_service.get_public_key()})
+
+@app.route("/api/push/subscribe", methods=["POST"])
+def subscribe_push():
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    sub_data = request.get_json() or {}
+    success = push_service.save_subscription(user_id, sub_data)
+    return jsonify({"success": success})
+
+@app.route("/api/push/unsubscribe", methods=["POST"])
+def unsubscribe_push():
+    sub_data = request.get_json() or {}
+    endpoint = sub_data.get("endpoint")
+    if endpoint:
+        push_service.remove_subscription(endpoint)
+    return jsonify({"success": True})
+
+@app.route("/api/call/decline_offline", methods=["POST"])
+def decline_call_offline():
+    data = request.get_json() or {}
+    conv_id = data.get("conversation_id")
+    caller_id = data.get("caller_id")
+    user_id = get_current_user_id()
+    if conv_id and caller_id:
+        socketio.emit("call_signal", {
+            "type": "decline",
+            "conversation_id": conv_id,
+            "sender_id": user_id
+        }, room=f"user_{caller_id}")
+    return jsonify({"success": True})
 
 @app.route("/health")
 def health():
@@ -1014,6 +1062,32 @@ def send_message_rest(conv_id):
                 "last_message": msg_dict
             }, room=f"user_{p['user_id']}")
 
+    # Gửi Web Push Notification cho các thiết bị (kể cả khi tắt web / khóa màn hình)
+    for oid in other_ids:
+        if oid not in viewing_set:
+            body_text = content
+            if message_type == "image":
+                body_text = "[Hình ảnh]"
+            elif message_type == "video":
+                body_text = "[Video]"
+            elif message_type == "audio":
+                body_text = "[Tin nhắn thoại]"
+            elif message_type == "file":
+                body_text = f"[Tệp tin] {msg_dict.get('media_name') or ''}"
+
+            sender_title = msg_dict.get("sender_name") or "Ai đó"
+            push_service.send_push_to_user(
+                user_id=oid,
+                title=sender_title,
+                body=body_text or "Đã gửi cho bạn một tin nhắn mới",
+                icon=msg_dict.get("sender_avatar"),
+                data={
+                    "type": "message",
+                    "conv_id": conv_id,
+                    "url": f"/?conv_id={conv_id}"
+                }
+            )
+
     return jsonify(msg_dict)
 
 # ----------------- NICKNAME APIS -----------------
@@ -1456,6 +1530,37 @@ def on_stop_typing(data):
 def on_call_signal(data):
     conv_id = data.get("conversation_id")
     target_user_id = data.get("target_user_id")
+    action = data.get("action")
+
+    # Khi có cuộc gọi đến, gửi Web Push Notification để thiết bị rung chuông và hiện thông báo
+    # ngay cả khi người nhận đã tắt web, chuyển ứng dụng hoặc khóa màn hình điện thoại
+    if action == "call_invite" and target_user_id:
+        caller = data.get("caller") or {}
+        caller_name = caller.get("display_name") or "Ai đó"
+        caller_avatar = caller.get("avatar_url")
+        caller_id = caller.get("id")
+        call_type = data.get("type") or "audio"
+        call_type_text = "video" if call_type == "video" else "thoại"
+
+        push_service.send_push_to_user(
+            user_id=int(target_user_id),
+            title=f"📞 Cuộc gọi {call_type_text} đến",
+            body=f"{caller_name} đang gọi {call_type_text} cho bạn...",
+            icon=caller_avatar,
+            data={
+                "type": "call",
+                "conv_id": conv_id,
+                "caller_id": caller_id,
+                "call_type": call_type,
+                "url": f"/?action=answer_call&conv_id={conv_id}&caller_id={caller_id}&call_type={call_type}"
+            },
+            actions=[
+                {"action": "answer", "title": "Trả lời 📞"},
+                {"action": "decline", "title": "Từ chối ❌"}
+            ],
+            require_interaction=True
+        )
+
     if target_user_id:
         emit("call_signal", data, room=f"user_{target_user_id}")
     elif conv_id:

@@ -317,6 +317,14 @@ class ChatApp {
         
         window.chatSocket.connect(this.currentUser.id);
 
+        if (window.pushManagerService) {
+            if (Notification.permission === 'granted') {
+                window.pushManagerService.subscribeUser();
+            } else if (Notification.permission === 'default') {
+                setTimeout(() => window.pushManagerService.showPermissionBanner(), 2000);
+            }
+        }
+
         await this.loadConversations();
         await this.loadFriends();
         await this.loadFriendRequests();
