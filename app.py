@@ -167,7 +167,7 @@ def decline_call_offline():
             "type": "decline",
             "conversation_id": conv_id,
             "sender_id": user_id
-        }, room=f"user_{caller_id}")
+        }, to=f"user_{caller_id}")
     return jsonify({"success": True})
 
 @app.route("/health")
@@ -524,7 +524,7 @@ def send_friend_request():
             conn.commit()
             conv_id = ensure_direct_conversation(conn, user_id, target_user_id)
             conn.close()
-            socketio.emit("friend_request_accepted", {"user_id": user_id, "conversation_id": conv_id}, room=f"user_{target_user_id}")
+            socketio.emit("friend_request_accepted", {"user_id": user_id, "conversation_id": conv_id}, to=f"user_{target_user_id}")
             return jsonify({"status": "accepted", "conversation_id": conv_id})
         conn.close()
         return jsonify({"status": exist["status"]})
@@ -542,7 +542,7 @@ def send_friend_request():
     socketio.emit("friend_request_received", {
         "request_id": req_id,
         "sender": dict(sender)
-    }, room=f"user_{target_user_id}")
+    }, to=f"user_{target_user_id}")
 
     return jsonify({"status": "pending_sent", "request_id": req_id})
 
@@ -593,7 +593,7 @@ def respond_friend_request():
         conv_id = ensure_direct_conversation(conn, user_id, sender_id)
         conn.close()
 
-        socketio.emit("friend_request_accepted", {"user_id": user_id, "conversation_id": conv_id}, room=f"user_{sender_id}")
+        socketio.emit("friend_request_accepted", {"user_id": user_id, "conversation_id": conv_id}, to=f"user_{sender_id}")
         return jsonify({"success": True, "action": "accept", "conv_id": conv_id})
     else:
         conn.execute("DELETE FROM friendships WHERE id = ?", (request_id,))
@@ -791,7 +791,7 @@ def get_messages(conv_id):
             "conversation_id": conv_id,
             "reader_id": user_id,
             "last_read_id": last_msg["max_id"]
-        }, room=f"conv_{conv_id}")
+        }, to=f"conv_{conv_id}")
 
     query = """
     SELECT 
@@ -1053,14 +1053,14 @@ def send_message_rest(conv_id):
     conn.close()
 
     # Realtime emit to conversation room (all active chatters receive the new message)
-    socketio.emit("new_message", msg_dict, room=f"conv_{conv_id}")
+    socketio.emit("new_message", msg_dict, to=f"conv_{conv_id}")
     # Realtime notify other participants' personal rooms so their sidebar updates
     for p in participants:
         if p["user_id"] != user_id:
             socketio.emit("conversation_updated", {
                 "conversation_id": conv_id,
                 "last_message": msg_dict
-            }, room=f"user_{p['user_id']}")
+            }, to=f"user_{p['user_id']}")
 
     # Gửi Web Push Notification cho các thiết bị (kể cả khi tắt web / khóa màn hình)
     for oid in other_ids:
@@ -1172,7 +1172,7 @@ def update_nickname(conv_id):
     conn.close()
 
     # Emit new message to conversation room
-    socketio.emit("new_message", sys_msg_dict, room=f"conv_{conv_id}")
+    socketio.emit("new_message", sys_msg_dict, to=f"conv_{conv_id}")
 
     # Emit nickname_updated event to conversation room
     socketio.emit("nickname_updated", {
@@ -1180,7 +1180,7 @@ def update_nickname(conv_id):
         "target_user_id": target_user_id,
         "nickname": new_nickname,
         "actor_id": user_id
-    }, room=f"conv_{conv_id}")
+    }, to=f"conv_{conv_id}")
 
     # Emit conversation_updated to each participant user room
     for p in participants_rows:
@@ -1191,7 +1191,7 @@ def update_nickname(conv_id):
                 "target_user_id": target_user_id,
                 "nickname": new_nickname
             }
-        }, room=f"user_{p['user_id']}")
+        }, to=f"user_{p['user_id']}")
 
     return jsonify({
         "success": True,
@@ -1313,7 +1313,7 @@ def react_message(msg_id):
         "conversation_id": msg["conversation_id"],
         "reactions": [dict(r) for r in reactions_rows]
     }
-    socketio.emit("reaction_updated", payload, room=f"conv_{msg['conversation_id']}")
+    socketio.emit("reaction_updated", payload, to=f"conv_{msg['conversation_id']}")
     return jsonify(payload)
 
 @app.route("/api/messages/<int:msg_id>/recall", methods=["POST"])
@@ -1339,7 +1339,7 @@ def recall_message(msg_id):
         "message_id": msg_id,
         "conversation_id": msg["conversation_id"]
     }
-    socketio.emit("message_recalled", payload, room=f"conv_{msg['conversation_id']}")
+    socketio.emit("message_recalled", payload, to=f"conv_{msg['conversation_id']}")
     return jsonify({"success": True})
 
 @app.route("/api/conversations/<int:conv_id>/pin/<int:msg_id>", methods=["POST"])
@@ -1373,7 +1373,7 @@ def pin_message(conv_id, msg_id):
         "action": action,
         "pinned": [dict(p) for p in pinned_rows]
     }
-    socketio.emit("pin_updated", payload, room=f"conv_{conv_id}")
+    socketio.emit("pin_updated", payload, to=f"conv_{conv_id}")
     return jsonify(payload)
 
 # ----------------- SOCKET.IO REALTIME EVENTS -----------------
@@ -1506,7 +1506,7 @@ def on_mark_read(data):
                 "conversation_id": cid,
                 "reader_id": uid,
                 "last_read_id": last_msg_id
-            }, room=f"conv_{cid}")
+            }, to=f"conv_{cid}")
         conn.close()
     except Exception as e:
         print("[Socket mark_read] Error:", e)
@@ -1517,14 +1517,14 @@ def on_typing(data):
     user_id = data.get("user_id")
     display_name = data.get("display_name")
     if conv_id and user_id:
-        emit("typing", {"user_id": user_id, "display_name": display_name, "conversation_id": conv_id}, room=f"conv_{conv_id}", include_self=False)
+        emit("typing", {"user_id": user_id, "display_name": display_name, "conversation_id": conv_id}, to=f"conv_{conv_id}", include_self=False)
 
 @socketio.on("stop_typing")
 def on_stop_typing(data):
     conv_id = data.get("conversation_id")
     user_id = data.get("user_id")
     if conv_id and user_id:
-        emit("stop_typing", {"user_id": user_id, "conversation_id": conv_id}, room=f"conv_{conv_id}", include_self=False)
+        emit("stop_typing", {"user_id": user_id, "conversation_id": conv_id}, to=f"conv_{conv_id}", include_self=False)
 
 @socketio.on("call_signal")
 def on_call_signal(data):
@@ -1562,9 +1562,9 @@ def on_call_signal(data):
         )
 
     if target_user_id:
-        emit("call_signal", data, room=f"user_{target_user_id}")
+        emit("call_signal", data, to=f"user_{target_user_id}")
     elif conv_id:
-        emit("call_signal", data, room=f"conv_{conv_id}", include_self=False)
+        emit("call_signal", data, to=f"conv_{conv_id}", include_self=False)
 
 if __name__ == "__main__":
     database.init_db()
