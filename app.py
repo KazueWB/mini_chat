@@ -163,11 +163,14 @@ def decline_call_offline():
     caller_id = data.get("caller_id")
     user_id = get_current_user_id()
     if conv_id and caller_id:
-        socketio.emit("call_signal", {
-            "type": "decline",
+        signal_payload = {
+            "action": "call_declined",
             "conversation_id": conv_id,
+            "target_user_id": caller_id,
             "sender_id": user_id
-        }, to=f"user_{caller_id}")
+        }
+        socketio.emit("call_signal", signal_payload, to=f"user_{caller_id}")
+        socketio.emit("call_signal", signal_payload, to=f"conv_{conv_id}", include_self=False)
     return jsonify({"success": True})
 
 @app.route("/health")
@@ -1561,9 +1564,35 @@ def on_call_signal(data):
             require_interaction=True
         )
 
+    # Khi người gọi hủy cuộc gọi trước khi đối phương nghe máy (Hủy cuộc gọi)
+    elif action == "call_canceled" and target_user_id:
+        push_service.send_push_to_user(
+            user_id=int(target_user_id),
+            title="Cuộc gọi nhỡ",
+            body="Cuộc gọi đã kết thúc",
+            data={
+                "type": "cancel_call",
+                "conv_id": conv_id
+            },
+            silent=True
+        )
+
+    # Khi cuộc gọi kết thúc hoặc bị từ chối
+    elif action in ("call_ended", "call_declined") and target_user_id:
+        push_service.send_push_to_user(
+            user_id=int(target_user_id),
+            title="Cuộc gọi kết thúc",
+            body="Cuộc gọi đã kết thúc",
+            data={
+                "type": "cancel_call",
+                "conv_id": conv_id
+            },
+            silent=True
+        )
+
     if target_user_id:
         emit("call_signal", data, to=f"user_{target_user_id}")
-    elif conv_id:
+    if conv_id:
         emit("call_signal", data, to=f"conv_{conv_id}", include_self=False)
 
 if __name__ == "__main__":

@@ -4,6 +4,9 @@ class SoundManager {
         this.enabled = true;
         this.ctx = null;
         this.ringInterval = null;
+        this.incomingRingInterval = null;
+        this.ringGain = null;
+        this.incomingGain = null;
     }
 
     init() {
@@ -65,29 +68,34 @@ class SoundManager {
     }
 
     startRinging() {
-        if (!this.enabled || this.ringInterval) return;
+        this.stopRinging();
+        if (!this.enabled) return;
         this.init();
         if (!this.ctx) return;
 
+        this.ringGain = this.ctx.createGain();
+        this.ringGain.gain.setValueAtTime(1, this.ctx.currentTime);
+        this.ringGain.connect(this.ctx.destination);
+
         const ring = () => {
-            if (!this.enabled || !this.ctx) return;
+            if (!this.enabled || !this.ctx || !this.ringGain) return;
             const now = this.ctx.currentTime;
             const osc1 = this.ctx.createOscillator();
             const osc2 = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
+            const noteGain = this.ctx.createGain();
 
             osc1.type = "sine";
             osc2.type = "sine";
             osc1.frequency.setValueAtTime(440, now);
             osc2.frequency.setValueAtTime(480, now);
 
-            gain.gain.setValueAtTime(0.2, now);
-            gain.gain.setValueAtTime(0.2, now + 1.2);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
+            noteGain.gain.setValueAtTime(0.2, now);
+            noteGain.gain.setValueAtTime(0.2, now + 1.2);
+            noteGain.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
 
-            osc1.connect(gain);
-            osc2.connect(gain);
-            gain.connect(this.ctx.destination);
+            osc1.connect(noteGain);
+            osc2.connect(noteGain);
+            noteGain.connect(this.ringGain);
 
             osc1.start(now);
             osc2.start(now);
@@ -104,15 +112,27 @@ class SoundManager {
             clearInterval(this.ringInterval);
             this.ringInterval = null;
         }
+        if (this.ringGain) {
+            try {
+                this.ringGain.gain.setValueAtTime(0, this.ctx ? this.ctx.currentTime : 0);
+                this.ringGain.disconnect();
+            } catch (e) {}
+            this.ringGain = null;
+        }
     }
 
     startIncomingRing() {
-        if (!this.enabled || this.incomingRingInterval) return;
+        this.stopIncomingRing();
+        if (!this.enabled) return;
         this.init();
         if (!this.ctx) return;
 
+        this.incomingGain = this.ctx.createGain();
+        this.incomingGain.gain.setValueAtTime(1, this.ctx.currentTime);
+        this.incomingGain.connect(this.ctx.destination);
+
         const playChime = () => {
-            if (!this.enabled || !this.ctx) return;
+            if (!this.enabled || !this.ctx || !this.incomingGain) return;
             const now = this.ctx.currentTime;
             
             // Musical incoming melody: C5 (523), E5 (659), G5 (784), C6 (1046)
@@ -126,16 +146,17 @@ class SoundManager {
             ];
 
             notes.forEach(n => {
+                if (!this.incomingGain) return;
                 const osc = this.ctx.createOscillator();
-                const gain = this.ctx.createGain();
+                const noteGain = this.ctx.createGain();
                 osc.type = "sine";
                 osc.frequency.setValueAtTime(n.f, now + n.start);
 
-                gain.gain.setValueAtTime(0.28, now + n.start);
-                gain.gain.exponentialRampToValueAtTime(0.001, now + n.start + n.dur);
+                noteGain.gain.setValueAtTime(0.28, now + n.start);
+                noteGain.gain.exponentialRampToValueAtTime(0.001, now + n.start + n.dur);
 
-                osc.connect(gain);
-                gain.connect(this.ctx.destination);
+                osc.connect(noteGain);
+                noteGain.connect(this.incomingGain);
 
                 osc.start(now + n.start);
                 osc.stop(now + n.start + n.dur);
@@ -151,6 +172,18 @@ class SoundManager {
             clearInterval(this.incomingRingInterval);
             this.incomingRingInterval = null;
         }
+        if (this.incomingGain) {
+            try {
+                this.incomingGain.gain.setValueAtTime(0, this.ctx ? this.ctx.currentTime : 0);
+                this.incomingGain.disconnect();
+            } catch (e) {}
+            this.incomingGain = null;
+        }
+    }
+
+    stopAll() {
+        this.stopRinging();
+        this.stopIncomingRing();
     }
 
     playEndCall() {

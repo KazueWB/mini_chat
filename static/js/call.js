@@ -418,50 +418,65 @@ class CallManager {
             }
         }
 
-        else if (action === "call_declined") {
-            if (this.activeCall && this.activeCall.role === "caller") {
-                if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
-                window.soundManager.stopRinging();
-                window.soundManager.playEndCall();
-                this.stateEl.textContent = "Cuộc gọi bị từ chối";
-                this.timerEl.textContent = "Đã kết thúc";
+        else if (action === "call_declined" || action === "call_timeout") {
+            // Caller: Callee đã từ chối hoặc hết 30s -> Lập tức ngắt chuông tút tút, báo bận và đóng modal
+            if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
+            window.soundManager.stopRinging();
+            window.soundManager.stopIncomingRing();
+            this.stopCallVibration();
+            this.closeCallNotification();
+            this.stopTitleBlink();
+            window.soundManager.playEndCall();
+            if (this.stateEl) this.stateEl.textContent = action === "call_timeout" ? "Không có phản hồi" : "Cuộc gọi bị từ chối";
+            if (this.timerEl) this.timerEl.textContent = "Đã kết thúc";
 
-                setTimeout(() => {
-                    this.cleanupCall();
-                }, 1800);
-            }
+            setTimeout(() => {
+                this.cleanupCall();
+            }, 1800);
         }
 
         else if (action === "call_canceled") {
-            if (this.activeCall && this.activeCall.status === "incoming") {
-                if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
-                window.soundManager.stopIncomingRing();
-                this.stopCallVibration();
-                this.closeCallNotification();
-                this.stopTitleBlink();
-                this.incomingModal.style.display = "none";
-                this.activeCall = null;
-                this.incomingCallData = null;
-            }
+            // Callee: Caller đã hủy cuộc gọi -> DỪNG NGAY LẬP TỨC TOÀN BỘ CHUÔNG, RUNG VÀ ĐÓNG THÔNG BÁO!
+            if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
+            window.soundManager.stopIncomingRing();
+            window.soundManager.stopRinging();
+            this.stopCallVibration();
+            this.closeCallNotification();
+            this.stopTitleBlink();
+            if (this.incomingModal) this.incomingModal.style.display = "none";
+            this.activeCall = null;
+            this.incomingCallData = null;
         }
 
         else if (action === "call_busy") {
-            if (this.activeCall && this.activeCall.role === "caller") {
-                if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
-                window.soundManager.stopRinging();
-                window.soundManager.playEndCall();
-                this.stateEl.textContent = "Người dùng đang bận cuộc gọi khác";
-                this.timerEl.textContent = "Đã kết thúc";
-                setTimeout(() => {
-                    this.cleanupCall();
-                }, 2000);
-            }
+            if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
+            window.soundManager.stopRinging();
+            window.soundManager.stopIncomingRing();
+            this.stopCallVibration();
+            this.closeCallNotification();
+            this.stopTitleBlink();
+            window.soundManager.playEndCall();
+            if (this.stateEl) this.stateEl.textContent = "Người dùng đang bận cuộc gọi khác";
+            if (this.timerEl) this.timerEl.textContent = "Đã kết thúc";
+            setTimeout(() => {
+                this.cleanupCall();
+            }, 2000);
         }
 
         else if (action === "call_ended") {
-            if (this.activeCall) {
-                this.endCall(false); // remotely ended
-            }
+            // Một trong hai bên ngắt máy khi đang đàm thoại -> Dừng ngay lập tức
+            if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
+            window.soundManager.stopRinging();
+            window.soundManager.stopIncomingRing();
+            this.stopCallVibration();
+            this.closeCallNotification();
+            this.stopTitleBlink();
+            window.soundManager.playEndCall();
+            if (this.stateEl) this.stateEl.textContent = "Cuộc gọi đã kết thúc";
+            if (this.timerEl) this.timerEl.textContent = "Đã ngắt máy";
+            setTimeout(() => {
+                this.cleanupCall();
+            }, 1000);
         }
 
         else if (action === "webrtc_offer") {
@@ -527,27 +542,30 @@ class CallManager {
 
     // ---------------- CALLEE DECLINES CALL ----------------
     declineCall(isTimeout = false) {
-        if (!this.activeCall) return;
         if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
-
         window.soundManager.stopIncomingRing();
+        window.soundManager.stopRinging();
         this.stopCallVibration();
         this.closeCallNotification();
         this.stopTitleBlink();
-        this.incomingModal.style.display = "none";
+        if (this.incomingModal) this.incomingModal.style.display = "none";
 
         const call = this.activeCall;
-        const targetUserId = call.targetUser.id;
+        if (!call) return;
+
+        const targetUserId = call.targetUser ? call.targetUser.id : null;
         const convId = call.targetConvId;
         const callType = call.type;
 
-        // Notify caller
-        window.chatSocket.sendCallSignal({
-            action: isTimeout ? "call_timeout" : "call_declined",
-            call_id: call.callId,
-            target_user_id: targetUserId,
-            conversation_id: convId
-        });
+        // Báo cho Caller biết để tắt chuông ngay lập tức
+        if (targetUserId && convId) {
+            window.chatSocket.sendCallSignal({
+                action: isTimeout ? "call_timeout" : "call_declined",
+                call_id: call.callId,
+                target_user_id: targetUserId,
+                conversation_id: convId
+            });
+        }
 
         // Post record into conversation
         const timeStr = this.getCurrentTimeStr();
@@ -556,9 +574,12 @@ class CallManager {
             ? `${icon} Cuộc gọi ${callType === "video" ? "video" : "thoại"} nhỡ lúc ${timeStr}`
             : `${icon} Cuộc gọi ${callType === "video" ? "video" : "thoại"} bị từ chối lúc ${timeStr}`;
 
-        this.logCallMessage(convId, content);
+        if (convId) {
+            this.logCallMessage(convId, content);
+        }
 
         this.activeCall = null;
+        this.incomingCallData = null;
     }
 
     // ---------------- TIMEOUT CANCEL (CALLER) ----------------
@@ -615,6 +636,9 @@ class CallManager {
         if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
         window.soundManager.stopRinging();
         window.soundManager.stopIncomingRing();
+        this.stopCallVibration();
+        this.closeCallNotification();
+        this.stopTitleBlink();
         window.soundManager.playEndCall();
 
         const call = this.activeCall;
@@ -629,7 +653,7 @@ class CallManager {
         const icon = callType === "video" ? "📹" : "📞";
 
         if (call.status === "outgoing" && isInitiator) {
-            // Caller cancelled before receiver answered -> Log Missed Call
+            // Caller cancelled before receiver answered -> Gửi tín hiệu hủy cho Callee
             window.chatSocket.sendCallSignal({
                 action: "call_canceled",
                 call_id: call.callId,
@@ -638,6 +662,14 @@ class CallManager {
             });
             const content = `${icon} Cuộc gọi ${callType === "video" ? "video" : "thoại"} nhỡ lúc ${timeStr}`;
             this.logCallMessage(convId, content);
+
+            // Cập nhật trạng thái hiển thị ngắn rồi đóng
+            if (this.stateEl) this.stateEl.textContent = "Đã hủy cuộc gọi";
+            if (this.timerEl) this.timerEl.textContent = "Đã kết thúc";
+            setTimeout(() => {
+                this.cleanupCall();
+            }, 400);
+            return;
         } else if (call.status === "connected") {
             // Call took place and completed -> Log Duration!
             if (isInitiator) {
@@ -651,12 +683,20 @@ class CallManager {
                 const content = `${icon} Cuộc gọi ${callType === "video" ? "video" : "thoại"} kết thúc - ${durationStr}`;
                 this.logCallMessage(convId, content);
             }
+
+            if (this.stateEl) this.stateEl.textContent = "Cuộc gọi đã kết thúc";
+            if (this.timerEl) this.timerEl.textContent = "Đã ngắt máy";
+            setTimeout(() => {
+                this.cleanupCall();
+            }, 600);
+            return;
         }
 
         this.cleanupCall();
     }
 
     cleanupCall() {
+        if (window.soundManager) window.soundManager.stopAll();
         this.stopCallVibration();
         this.closeCallNotification();
         this.stopTitleBlink();

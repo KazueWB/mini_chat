@@ -1,5 +1,5 @@
 // Service Worker for Chat Together Web PWA & Web Push Notifications
-const CACHE_NAME = 'chat-together-v1';
+const CACHE_NAME = 'chat-together-v2';
 
 self.addEventListener('install', (event) => {
     self.skipWaiting();
@@ -23,8 +23,25 @@ self.addEventListener('push', (event) => {
         };
     }
 
-    const title = payload.title || "Chat Together";
     const data = payload.data || {};
+
+    // 1. Nếu là tín hiệu HỦY cuộc gọi hoặc KẾT THÚC cuộc gọi từ đối phương:
+    // Lập tức đóng tất cả thông báo cuộc gọi và dừng rung trên điện thoại!
+    if (data.type === "cancel_call" || data.type === "end_call") {
+        event.waitUntil(
+            self.registration.getNotifications().then(notifs => {
+                notifs.forEach(n => {
+                    const tag = n.tag || "";
+                    if (tag.startsWith("call_") || tag.startsWith("incoming_call_")) {
+                        n.close();
+                    }
+                });
+            })
+        );
+        return;
+    }
+
+    const title = payload.title || "Chat Together";
     const isCall = (data.type === "call");
 
     let iconUrl = payload.icon || "/static/img/icon-192.png";
@@ -101,4 +118,3 @@ self.addEventListener('notificationclick', (event) => {
         })
     );
 });
-
