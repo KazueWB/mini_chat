@@ -1,82 +1,32 @@
 import os
 import json
-import base64
 import threading
-from py_vapid import Vapid
-from cryptography.hazmat.primitives import serialization
 from pywebpush import webpush, WebPushException
 import database
 
-VAPID_FILE = os.path.join(os.path.dirname(__file__), "vapid_keys.json")
-DEFAULT_CLAIMS_EMAIL = "mailto:admin@chattogether.local"
+# Cặp VAPID Keys cố định chuẩn W3C WebPush dùng chung đồng bộ cho cả Local và Cloud (Render/Railway)
+DEFAULT_VAPID_PUBLIC_KEY = "BOulQ8MFwN89VsAp6vtqEnI51o-iV1GlVj0MNILkKbxqTwJSHaVrAsw5-23GcqHsntjhnkkT0DdMRWmIXR5yUb0"
+DEFAULT_VAPID_PRIVATE_PEM = """-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgvHNgWbI5By41jyb+
+JNS/fD+K7QLgdGt/1FDy0qKV7OOhRANCAATrpUPDBcDfPVbAKer7ahJyOdaPoldR
+pVY9DDSC5Cm8ak8CUh2lawLMOfttxnKh7J7Y4Z5JE9A3TEVpiF0eclG9
+-----END PRIVATE KEY-----"""
+DEFAULT_CLAIMS_EMAIL = "mailto:admin@chattogether.vn"
 
-_cached_keys = None
+PEM_FILE_PATH = os.path.join(os.path.dirname(__file__), "vapid_private.pem")
 
-def get_or_create_vapid_keys():
-    global _cached_keys
-    if _cached_keys:
-        return _cached_keys
-
-    # Kiểm tra biến môi trường trước
-    env_pub = os.environ.get("VAPID_PUBLIC_KEY")
-    env_priv = os.environ.get("VAPID_PRIVATE_KEY")
-    claims_email = os.environ.get("VAPID_CLAIMS_EMAIL") or DEFAULT_CLAIMS_EMAIL
-
-    if env_pub and env_priv:
-        _cached_keys = {
-            "public_key": env_pub,
-            "private_key_pem": env_priv,
-            "claims_email": claims_email
-        }
-        return _cached_keys
-
-    # Kiểm tra file vapid_keys.json
-    if os.path.exists(VAPID_FILE):
+def ensure_pem_file():
+    """Đảm bảo file PEM của private key tồn tại trên đĩa để pywebpush đọc trực tiếp"""
+    if not os.path.exists(PEM_FILE_PATH):
         try:
-            with open(VAPID_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if "public_key" in data and "private_key_pem" in data:
-                    _cached_keys = data
-                    return _cached_keys
+            with open(PEM_FILE_PATH, "w", encoding="utf-8") as f:
+                f.write(DEFAULT_VAPID_PRIVATE_PEM.strip())
         except Exception as e:
-            print("[PushService] Error reading vapid_keys.json:", e)
-
-    # Nếu chưa có, tự động sinh mới
-    print("[PushService] Generating new VAPID keypair...")
-    v = Vapid()
-    v.generate_keys()
-
-    raw_pub = v.public_key.public_bytes(
-        encoding=serialization.Encoding.X962,
-        format=serialization.PublicFormat.UncompressedPoint
-    )
-    b64_pub = base64.urlsafe_b64encode(raw_pub).decode("utf-8").rstrip("=")
-
-    pem_priv = v.private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption()
-    ).decode("utf-8")
-
-    keys_data = {
-        "public_key": b64_pub,
-        "private_key_pem": pem_priv,
-        "claims_email": claims_email
-    }
-
-    try:
-        with open(VAPID_FILE, "w", encoding="utf-8") as f:
-            json.dump(keys_data, f, indent=2)
-        print("[PushService] Saved new VAPID keys to vapid_keys.json")
-    except Exception as e:
-        print("[PushService] Failed to save vapid_keys.json:", e)
-
-    _cached_keys = keys_data
-    return _cached_keys
+            print("[PushService] Error writing vapid_private.pem:", e)
+    return PEM_FILE_PATH
 
 def get_public_key():
-    keys = get_or_create_vapid_keys()
-    return keys["public_key"]
+    return os.environ.get("VAPID_PUBLIC_KEY") or DEFAULT_VAPID_PUBLIC_KEY
 
 def save_subscription(user_id, sub_data):
     endpoint = sub_data.get("endpoint")
@@ -89,7 +39,7 @@ def save_subscription(user_id, sub_data):
 
     conn = database.get_db()
     try:
-        # Xóa các bản ghi cũ của endpoint này (nếu có user khác từng dùng trên trình duyệt này)
+        # Xóa bản ghi cũ nếu endpoint này đã từng đăng ký
         conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
         conn.execute(
             "INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)",
@@ -115,7 +65,7 @@ def remove_subscription(endpoint):
     finally:
         conn.close()
 
-def _send_to_sub(endpoint, p256dh, auth, payload_str, vapid_keys):
+def _send_to_sub(endpoint, p256dh, auth, payload_str):
     sub_info = {
         "endpoint": endpoint,
         "keys": {
@@ -123,33 +73,35 @@ def _send_to_sub(endpoint, p256dh, auth, payload_str, vapid_keys):
             "auth": auth
         }
     }
+    pem_path = ensure_pem_file()
+    claims_email = os.environ.get("VAPID_CLAIMS_EMAIL") or DEFAULT_CLAIMS_EMAIL
+
     try:
-        webpush(
+        resp = webpush(
             subscription_info=sub_info,
             data=payload_str,
-            vapid_private_key=vapid_keys["private_key_pem"],
-            vapid_claims={"sub": vapid_keys["claims_email"]},
-            ttl=60  # tồn tại 60s trên push server
+            vapid_private_key=pem_path,
+            vapid_claims={"sub": claims_email},
+            ttl=60
         )
+        print(f"[PushService] Push sent to {endpoint[:45]}... (Status: {resp.status_code})")
         return True
     except WebPushException as ex:
-        # Nếu thiết bị đã hết hạn (404 / 410), xóa khỏi DB
         status_code = getattr(ex.response, "status_code", None) if hasattr(ex, "response") else None
         print(f"[PushService] WebPushException (status={status_code}): {ex}")
-        if status_code in (404, 410):
+        # Nếu token hết hạn hoặc VAPID không khớp, xóa khỏi DB để client đăng ký lại
+        if status_code in (400, 403, 404, 410):
             remove_subscription(endpoint)
         return False
     except Exception as e:
-        print(f"[PushService] Push error for {endpoint[:30]}...: {e}")
+        print(f"[PushService] Push error for {endpoint[:45]}...: {e}")
         return False
 
 def send_push_to_user(user_id, title, body, icon=None, data=None, actions=None, require_interaction=False, silent=False):
     """
     Gửi thông báo đẩy bất đồng bộ (background thread) tới tất cả các thiết bị đã đăng ký của user_id.
-    Chạy khi người dùng tắt web hoặc ẩn tab, chỉ cần có Wifi/4G là thiết bị sẽ nhận được.
+    Hoạt động ngay cả khi người dùng tắt web, khóa màn hình điện thoại (chỉ cần có Wifi/4G).
     """
-    keys = get_or_create_vapid_keys()
-
     payload = {
         "title": title,
         "body": body,
@@ -162,12 +114,10 @@ def send_push_to_user(user_id, title, body, icon=None, data=None, actions=None, 
     }
 
     if require_interaction:
-        # Kiểu rung chuông gọi điện dài
         payload["vibrate"] = [400, 200, 400, 200, 800, 400, 800]
         payload["tag"] = f"call_{data.get('conv_id', 'general')}"
         payload["renotify"] = True
     else:
-        # Rung thông báo tin nhắn ngắn
         payload["vibrate"] = [150, 80, 150]
         payload["tag"] = f"msg_{data.get('conv_id', 'general')}"
 
@@ -187,10 +137,12 @@ def send_push_to_user(user_id, title, body, icon=None, data=None, actions=None, 
             conn.close()
 
         if not rows:
+            print(f"[PushService] No subscriptions registered for user_id={user_id}")
             return
 
+        print(f"[PushService] Dispatching push to {len(rows)} device(s) for user_id={user_id}...")
         for row in rows:
-            _send_to_sub(row["endpoint"], row["p256dh"], row["auth"], payload_str, keys)
+            _send_to_sub(row["endpoint"], row["p256dh"], row["auth"], payload_str)
 
     t = threading.Thread(target=worker, daemon=True)
     t.start()

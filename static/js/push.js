@@ -71,12 +71,22 @@ class PushManagerService {
             if (!pubKey) return false;
 
             const applicationServerKey = this.urlBase64ToUint8Array(pubKey);
+
+            // Kiểm tra subscription hiện tại, nếu có thì hủy để đăng ký lại đồng bộ với server key
+            const existingSub = await this.swRegistration.pushManager.getSubscription();
+            if (existingSub) {
+                try {
+                    await existingSub.unsubscribe();
+                    console.log('[Push] Đã làm mới subscription cũ để đồng bộ VAPID key chuẩn.');
+                } catch (e) {}
+            }
+
             const subscription = await this.swRegistration.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: applicationServerKey
             });
 
-            console.log('[Push] Đã lấy PushSubscription:', subscription);
+            console.log('[Push] Đã tạo PushSubscription mới thành công:', subscription);
 
             // Gửi lên server để lưu vào database
             const res = await fetch('/api/push/subscribe', {
@@ -223,3 +233,4 @@ window.pushManagerService = new PushManagerService();
 document.addEventListener('DOMContentLoaded', () => {
     window.pushManagerService.init();
 });
+
