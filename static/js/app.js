@@ -188,6 +188,34 @@ class ChatApp {
         this.btnProfileCallAudio = document.getElementById("btn-profile-call-audio");
         this.btnProfileCallVideo = document.getElementById("btn-profile-call-video");
         this.userAvatarBtn = document.getElementById("user-avatar-btn");
+
+        // Admin Dashboard Elements
+        this.modalAdminPanel = document.getElementById("modal-admin-panel");
+        this.btnOpenAdminPanel = document.getElementById("btn-open-admin-panel");
+        this.btnNavAdmin = document.getElementById("btn-nav-admin");
+        this.btnAdminRefresh = document.getElementById("btn-admin-refresh");
+        this.adminSearchInput = document.getElementById("admin-search-input");
+        this.adminSearchClear = document.getElementById("admin-search-clear");
+        this.adminUsersTbody = document.getElementById("admin-users-tbody");
+        this.adminEmptyState = document.getElementById("admin-empty-state");
+        this.adminStatTotal = document.getElementById("admin-stat-total");
+        this.adminStatOnline = document.getElementById("admin-stat-online");
+        this.adminCountAll = document.getElementById("admin-count-all");
+        this.adminCountOnline = document.getElementById("admin-count-online");
+        this.adminCountOffline = document.getElementById("admin-count-offline");
+
+        // Admin Reset Password Elements
+        this.modalAdminResetPwd = document.getElementById("modal-admin-reset-pwd");
+        this.adminResetTargetUser = document.getElementById("admin-reset-target-user");
+        this.adminNewPwdInput = document.getElementById("admin-new-pwd-input");
+        this.btnGenerateRandomPwd = document.getElementById("btn-generate-random-pwd");
+        this.btnSubmitAdminResetPwd = document.getElementById("btn-submit-admin-reset-pwd");
+        this.adminResetPwdError = document.getElementById("admin-reset-pwd-error");
+
+        // Admin User Detail Elements
+        this.modalAdminUserDetail = document.getElementById("modal-admin-user-detail");
+        this.adminUserDetailContent = document.getElementById("admin-user-detail-content");
+        this.adminUserDetailFooter = document.getElementById("admin-user-detail-footer");
     }
 
     async init() {
@@ -2499,6 +2527,359 @@ class ChatApp {
         this.loadConversations();
     }
 
+    // ---------------- ADMIN MANAGEMENT & PASSWORD HASHING ----------------
+    async openAdminPanel() {
+        if (!this.currentUser) {
+            alert("Vui lòng đăng nhập để truy cập bảng quản trị!");
+            return;
+        }
+        if (this.modalUserProfile) {
+            this.closeModal(this.modalUserProfile);
+        }
+        this.openModal(this.modalAdminPanel);
+        this.adminActiveFilter = "all";
+        if (this.adminSearchInput) this.adminSearchInput.value = "";
+        if (this.adminSearchClear) this.adminSearchClear.style.display = "none";
+        document.querySelectorAll(".admin-tab").forEach(t => {
+            t.classList.toggle("active", t.dataset.filter === "all");
+        });
+        await this.loadAdminUsers();
+    }
+
+    async loadAdminUsers() {
+        if (this.adminUsersTbody) {
+            this.adminUsersTbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding: 25px;"><i class="fa-solid fa-spinner fa-spin"></i> Đang tải danh sách tài khoản từ SQL...</td></tr>`;
+        }
+        try {
+            const res = await fetch("/api/admin/users");
+            const data = await res.json();
+            if (data.error) {
+                alert("Lỗi tải danh sách quản trị: " + data.error);
+                return;
+            }
+            this.adminUsersList = data.users || [];
+            
+            // Update stats
+            const total = this.adminUsersList.length;
+            const onlineCount = this.adminUsersList.filter(u => u.status === 'online').length;
+            const offlineCount = total - onlineCount;
+
+            if (this.adminStatTotal) this.adminStatTotal.textContent = total;
+            if (this.adminStatOnline) this.adminStatOnline.textContent = onlineCount;
+            if (this.adminCountAll) this.adminCountAll.textContent = total;
+            if (this.adminCountOnline) this.adminCountOnline.textContent = onlineCount;
+            if (this.adminCountOffline) this.adminCountOffline.textContent = offlineCount;
+
+            this.renderAdminUsers();
+        } catch (err) {
+            console.error("Lỗi kết nối API Admin:", err);
+            if (this.adminUsersTbody) {
+                this.adminUsersTbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding: 20px; color:#f87171;"><i class="fa-solid fa-triangle-exclamation"></i> Không thể kết nối máy chủ quản trị</td></tr>`;
+            }
+        }
+    }
+
+    renderAdminUsers() {
+        if (!this.adminUsersList || !this.adminUsersTbody) return;
+        const query = (this.adminSearchInput ? this.adminSearchInput.value.trim().toLowerCase() : "");
+        const filter = this.adminActiveFilter || "all";
+
+        let filtered = this.adminUsersList.filter(u => {
+            if (filter === "online" && u.status !== "online") return false;
+            if (filter === "offline" && u.status === "online") return false;
+
+            if (query) {
+                const matchName = (u.display_name || "").toLowerCase().includes(query);
+                const matchUsername = (u.username || "").toLowerCase().includes(query);
+                const matchPhone = (u.phone || "").toLowerCase().includes(query);
+                const matchId = String(u.id).includes(query);
+                return matchName || matchUsername || matchPhone || matchId;
+            }
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            this.adminUsersTbody.innerHTML = "";
+            if (this.adminEmptyState) this.adminEmptyState.style.display = "block";
+            return;
+        }
+
+        if (this.adminEmptyState) this.adminEmptyState.style.display = "none";
+
+        const genderMap = { male: 'Nam', female: 'Nữ', other: 'Khác', unspecified: 'Chưa rõ' };
+
+        this.adminUsersTbody.innerHTML = filtered.map(u => {
+            const isMe = this.currentUser && Number(u.id) === Number(this.currentUser.id);
+            const statusClass = u.status === 'online' ? 'online' : (u.status === 'busy' ? 'busy' : (u.status === 'away' ? 'away' : 'offline'));
+            const statusText = u.status === 'online' ? 'Online' : (u.status === 'busy' ? 'Đang bận' : (u.status === 'away' ? 'Vắng' : 'Offline'));
+            
+            // Password hash display
+            const rawHash = u.password_hash || u.password || "";
+            const shortHash = rawHash.length > 20 ? rawHash.slice(0, 16) + "..." : rawHash;
+
+            const createdDate = u.created_at ? this.formatDateSeparator(u.created_at) : "--";
+
+            return `
+                <tr data-user-id="${u.id}">
+                    <td><strong style="color:var(--text-secondary);">#${u.id}</strong></td>
+                    <td>
+                        <div class="admin-user-cell">
+                            <img src="${this.escapeHTML(u.avatar_url || '')}" alt="${this.escapeHTML(u.display_name || '')}">
+                            <div class="admin-user-info-text">
+                                <span class="admin-user-name">
+                                    ${this.escapeHTML(u.display_name || '--')}
+                                    ${isMe ? '<span class="admin-you-tag">Bạn</span>' : ''}
+                                </span>
+                                <span class="admin-user-handle">@${this.escapeHTML(u.username || '')}</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <span style="font-weight:500;">${this.escapeHTML(u.phone || 'Chưa cập nhật')}</span>
+                    </td>
+                    <td>
+                        <div class="admin-hash-pill" title="Bấm để sao chép chuỗi băm (Password Hash)" onclick="window.app.copyPasswordHash('${this.escapeHTML(rawHash)}')">
+                            <i class="fa-solid fa-lock"></i>
+                            <span class="admin-hash-code">${this.escapeHTML(shortHash)}</span>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="font-size:12px;">
+                            <span>${this.escapeHTML(u.dob || 'Chưa có')}</span>
+                            <span style="color:var(--text-secondary); margin-left:4px;">(${genderMap[u.gender] || 'Chưa rõ'})</span>
+                        </div>
+                    </td>
+                    <td style="max-width: 140px;">
+                        <span style="font-size:12px; color:var(--text-secondary); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${this.escapeHTML(u.bio || '')}">
+                            ${this.escapeHTML(u.bio || 'Chưa có tiểu sử')}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="admin-status-pill ${statusClass}">
+                            <i class="fa-solid fa-circle" style="font-size:7px;"></i> ${statusText}
+                        </span>
+                    </td>
+                    <td>
+                        <span style="font-size:11.5px; color:var(--text-secondary);">${createdDate}</span>
+                    </td>
+                    <td>
+                        <div class="admin-actions-cell">
+                            <button class="admin-btn-action admin-btn-view" title="Xem toàn bộ thông tin chi tiết" onclick="window.app.openAdminUserDetail(${u.id})">
+                                <i class="fa-solid fa-eye"></i>
+                            </button>
+                            <button class="admin-btn-action admin-btn-reset" title="Đặt lại mật khẩu (Password Hash)" onclick="window.app.openAdminResetPassword(${u.id})">
+                                <i class="fa-solid fa-key"></i>
+                            </button>
+                            <button class="admin-btn-action admin-btn-del" title="${isMe ? 'Không thể tự xóa tài khoản của bạn' : 'Xóa tài khoản vĩnh viễn'}" ${isMe ? 'disabled' : ''} onclick="window.app.deleteAdminUser(${u.id})">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    copyPasswordHash(hash) {
+        if (!hash) return;
+        navigator.clipboard.writeText(hash).then(() => {
+            alert("📋 Đã sao chép chuỗi Băm Mật Khẩu (Password Hash) vào khay nhớ tạm:\n\n" + hash);
+        }).catch(() => {
+            prompt("Chuỗi Băm Mật Khẩu (Password Hash):", hash);
+        });
+    }
+
+    openAdminUserDetail(userId) {
+        const u = (this.adminUsersList || []).find(x => Number(x.id) === Number(userId));
+        if (!u) return;
+
+        const isMe = this.currentUser && Number(u.id) === Number(this.currentUser.id);
+        const genderMap = { male: 'Nam', female: 'Nữ', other: 'Khác', unspecified: 'Chưa xác định' };
+        const rawHash = u.password_hash || u.password || "";
+
+        this.adminUserDetailContent.innerHTML = `
+            <div style="display:flex; align-items:center; gap:16px; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--border-color);">
+                <img src="${this.escapeHTML(u.avatar_url || '')}" alt="${this.escapeHTML(u.display_name)}" style="width:58px; height:58px; border-radius:50%; border:2px solid var(--border-color); object-fit:cover;">
+                <div>
+                    <h3 style="margin:0; font-size:17px; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
+                        ${this.escapeHTML(u.display_name)}
+                        ${isMe ? '<span class="admin-you-tag">Tài khoản của bạn</span>' : ''}
+                    </h3>
+                    <p style="margin:2px 0 0 0; font-size:13px; color:var(--text-secondary);">@${this.escapeHTML(u.username)} • ID: #${u.id}</p>
+                </div>
+            </div>
+            <div class="admin-detail-grid">
+                <div class="admin-detail-item">
+                    <span class="admin-detail-label"><i class="fa-solid fa-id-badge"></i> ID người dùng:</span>
+                    <span class="admin-detail-value">#${u.id}</span>
+                </div>
+                <div class="admin-detail-item">
+                    <span class="admin-detail-label"><i class="fa-solid fa-user"></i> Tên đăng nhập:</span>
+                    <span class="admin-detail-value">@${this.escapeHTML(u.username)}</span>
+                </div>
+                <div class="admin-detail-item">
+                    <span class="admin-detail-label"><i class="fa-solid fa-signature"></i> Họ và tên:</span>
+                    <span class="admin-detail-value">${this.escapeHTML(u.display_name)}</span>
+                </div>
+                <div class="admin-detail-item">
+                    <span class="admin-detail-label"><i class="fa-solid fa-phone"></i> Số điện thoại:</span>
+                    <span class="admin-detail-value">${this.escapeHTML(u.phone || 'Chưa cập nhật')}</span>
+                </div>
+                <div class="admin-detail-item" style="flex-direction:column; align-items:flex-start;">
+                    <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                        <span class="admin-detail-label"><i class="fa-solid fa-lock"></i> Chuỗi Băm Mật Khẩu (Hash):</span>
+                        <button type="button" class="btn-copy-chip" onclick="window.app.copyPasswordHash('${this.escapeHTML(rawHash)}')">
+                            <i class="fa-regular fa-copy"></i> Sao chép
+                        </button>
+                    </div>
+                    <code style="margin-top:6px; word-break:break-all; font-size:11px; max-height:60px; overflow-y:auto; display:block; width:100%;">${this.escapeHTML(rawHash)}</code>
+                </div>
+                <div class="admin-detail-item">
+                    <span class="admin-detail-label"><i class="fa-solid fa-shield-halved"></i> Chuẩn mã hóa:</span>
+                    <span class="admin-detail-value" style="color:#10b981; font-weight:600;"><i class="fa-solid fa-check"></i> Scrypt / PBKDF2 Password Hashing</span>
+                </div>
+                <div class="admin-detail-item">
+                    <span class="admin-detail-label"><i class="fa-solid fa-cake-candles"></i> Ngày sinh:</span>
+                    <span class="admin-detail-value">${this.escapeHTML(u.dob || 'Chưa cập nhật')}</span>
+                </div>
+                <div class="admin-detail-item">
+                    <span class="admin-detail-label"><i class="fa-solid fa-venus-mars"></i> Giới tính:</span>
+                    <span class="admin-detail-value">${genderMap[u.gender] || 'Chưa cập nhật'}</span>
+                </div>
+                <div class="admin-detail-item">
+                    <span class="admin-detail-label"><i class="fa-solid fa-quote-left"></i> Tiểu sử:</span>
+                    <span class="admin-detail-value">${this.escapeHTML(u.bio || 'Chưa có')}</span>
+                </div>
+                <div class="admin-detail-item">
+                    <span class="admin-detail-label"><i class="fa-solid fa-circle-dot"></i> Trạng thái:</span>
+                    <span class="admin-detail-value">${u.status || 'offline'}</span>
+                </div>
+                <div class="admin-detail-item">
+                    <span class="admin-detail-label"><i class="fa-solid fa-calendar-plus"></i> Thời gian tạo:</span>
+                    <span class="admin-detail-value">${u.created_at ? this.formatDateSeparator(u.created_at) : '--'}</span>
+                </div>
+                <div class="admin-detail-item">
+                    <span class="admin-detail-label"><i class="fa-solid fa-clock"></i> Hoạt động cuối:</span>
+                    <span class="admin-detail-value">${u.last_seen ? this.formatDateSeparator(u.last_seen) : '--'}</span>
+                </div>
+            </div>
+        `;
+
+        this.adminUserDetailFooter.innerHTML = `
+            <button class="btn btn-secondary" data-modal="modal-admin-user-detail">Đóng</button>
+            <button class="btn btn-primary" onclick="window.app.closeModal(window.app.modalAdminUserDetail); window.app.openAdminResetPassword(${u.id});">
+                <i class="fa-solid fa-key"></i> Đặt lại mật khẩu
+            </button>
+            ${!isMe ? `
+                <button class="btn btn-secondary" style="color:#f87171; border-color:#f87171;" onclick="window.app.closeModal(window.app.modalAdminUserDetail); window.app.deleteAdminUser(${u.id});">
+                    <i class="fa-solid fa-trash-can"></i> Xóa tài khoản
+                </button>
+            ` : ''}
+        `;
+
+        this.openModal(this.modalAdminUserDetail);
+    }
+
+    openAdminResetPassword(userId) {
+        const u = (this.adminUsersList || []).find(x => Number(x.id) === Number(userId));
+        if (!u) return;
+
+        this.activeAdminResetUserId = userId;
+        this.adminResetTargetUser.innerHTML = `
+            <img src="${this.escapeHTML(u.avatar_url || '')}" alt="${this.escapeHTML(u.display_name)}">
+            <div>
+                <h4 style="margin:0; font-size:14.5px; color:var(--text-primary);">${this.escapeHTML(u.display_name)}</h4>
+                <p style="margin:2px 0 0 0; font-size:12px; color:var(--text-secondary);">@${this.escapeHTML(u.username)} • ${this.escapeHTML(u.phone || 'Chưa có SĐT')}</p>
+            </div>
+        `;
+
+        if (this.adminNewPwdInput) this.adminNewPwdInput.value = "";
+        if (this.adminResetPwdError) {
+            this.adminResetPwdError.style.display = "none";
+            this.adminResetPwdError.textContent = "";
+        }
+
+        this.openModal(this.modalAdminResetPwd);
+        setTimeout(() => {
+            if (this.adminNewPwdInput) this.adminNewPwdInput.focus();
+        }, 150);
+    }
+
+    generateRandomPassword() {
+        const words = ["Zalo", "Chat", "Admin", "Secure", "Vip", "Pro", "Star"];
+        const word = words[Math.floor(Math.random() * words.length)];
+        const num = Math.floor(100000 + Math.random() * 900000);
+        const special = ["@", "#", "!", "$"][Math.floor(Math.random() * 4)];
+        return `${word}${special}${num}`;
+    }
+
+    async submitAdminResetPassword() {
+        if (!this.activeAdminResetUserId) return;
+        const newPassword = (this.adminNewPwdInput ? this.adminNewPwdInput.value.trim() : "");
+        if (!newPassword) {
+            this.adminResetPwdError.textContent = "Vui lòng nhập mật khẩu mới!";
+            this.adminResetPwdError.style.display = "block";
+            return;
+        }
+
+        const originalBtnText = this.btnSubmitAdminResetPwd.innerHTML;
+        this.btnSubmitAdminResetPwd.disabled = true;
+        this.btnSubmitAdminResetPwd.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Đang băm mật khẩu...`;
+
+        try {
+            const res = await fetch(`/api/admin/users/${this.activeAdminResetUserId}/reset-password`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ new_password: newPassword })
+            });
+            const data = await res.json();
+            this.btnSubmitAdminResetPwd.disabled = false;
+            this.btnSubmitAdminResetPwd.innerHTML = originalBtnText;
+
+            if (data.error) {
+                this.adminResetPwdError.textContent = data.error;
+                this.adminResetPwdError.style.display = "block";
+                return;
+            }
+
+            alert(`✅ ĐẶT LẠI MẬT KHẨU THÀNH CÔNG!\n\n• Mật khẩu mới: ${newPassword}\n• Chuỗi băm lưu trữ: ${data.new_hash ? data.new_hash.slice(0, 32) + '...' : 'Đã băm an toàn'}\n\nNgười dùng có thể đăng nhập ngay bằng mật khẩu mới này.`);
+            this.closeModal(this.modalAdminResetPwd);
+            await this.loadAdminUsers();
+        } catch (err) {
+            this.btnSubmitAdminResetPwd.disabled = false;
+            this.btnSubmitAdminResetPwd.innerHTML = originalBtnText;
+            this.adminResetPwdError.textContent = "Lỗi kết nối máy chủ!";
+            this.adminResetPwdError.style.display = "block";
+        }
+    }
+
+    async deleteAdminUser(userId) {
+        const u = (this.adminUsersList || []).find(x => Number(x.id) === Number(userId));
+        const userName = u ? u.display_name : `#${userId}`;
+        const userHandle = u ? `@${u.username}` : "";
+
+        if (!confirm(`⚠️ XÁC NHẬN XÓA TÀI KHOẢN QUẢN TRỊ:\n\nBạn có chắc chắn muốn xóa vĩnh viễn tài khoản "${userName}" (${userHandle})?\n\n• Tất cả tin nhắn, cảm xúc, danh bạ và quyền thành viên của tài khoản này sẽ bị xóa khỏi cơ sở dữ liệu.\n• Thao tác này KHÔNG thể hoàn tác!`)) {
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/admin/users/${userId}/delete`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" }
+            });
+            const data = await res.json();
+            if (data.error) {
+                alert("❌ Không thể xóa tài khoản: " + data.error);
+                return;
+            }
+
+            alert(`✅ ${data.message || "Đã xóa tài khoản vĩnh viễn thành công!"}`);
+            await this.loadAdminUsers();
+        } catch (err) {
+            alert("Lỗi kết nối khi xóa tài khoản: " + err.message);
+        }
+    }
+
     // ---------------- EMOJI PICKER ----------------
     initEmojiPicker() {
         this.emojiCategories = {
@@ -2775,6 +3156,52 @@ class ChatApp {
                 e.target.value = "";
             }
         });
+
+        // Admin Management Panel Events
+        if (this.btnOpenAdminPanel) {
+            this.btnOpenAdminPanel.addEventListener("click", () => this.openAdminPanel());
+        }
+        if (this.btnNavAdmin) {
+            this.btnNavAdmin.addEventListener("click", () => this.openAdminPanel());
+        }
+        if (this.btnAdminRefresh) {
+            this.btnAdminRefresh.addEventListener("click", () => this.loadAdminUsers());
+        }
+        if (this.adminSearchInput) {
+            this.adminSearchInput.addEventListener("input", () => {
+                if (this.adminSearchClear) {
+                    this.adminSearchClear.style.display = this.adminSearchInput.value ? "block" : "none";
+                }
+                this.renderAdminUsers();
+            });
+        }
+        if (this.adminSearchClear) {
+            this.adminSearchClear.addEventListener("click", () => {
+                this.adminSearchInput.value = "";
+                this.adminSearchClear.style.display = "none";
+                this.renderAdminUsers();
+                this.adminSearchInput.focus();
+            });
+        }
+        document.querySelectorAll(".admin-tab").forEach(tab => {
+            tab.addEventListener("click", () => {
+                document.querySelectorAll(".admin-tab").forEach(t => t.classList.remove("active"));
+                tab.classList.add("active");
+                this.adminActiveFilter = tab.dataset.filter || "all";
+                this.renderAdminUsers();
+            });
+        });
+        if (this.btnGenerateRandomPwd) {
+            this.btnGenerateRandomPwd.addEventListener("click", () => {
+                if (this.adminNewPwdInput) {
+                    this.adminNewPwdInput.value = this.generateRandomPassword();
+                    if (this.adminResetPwdError) this.adminResetPwdError.style.display = "none";
+                }
+            });
+        }
+        if (this.btnSubmitAdminResetPwd) {
+            this.btnSubmitAdminResetPwd.addEventListener("click", () => this.submitAdminResetPassword());
+        }
     }
 
     switchNavTab(tab) {

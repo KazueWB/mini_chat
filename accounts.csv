@@ -1,16 +1,16 @@
-﻿ID,Thời gian đăng ký,Tên đăng nhập,Họ và tên,Mật khẩu,Số điện thoại,Trạng thái,Tiểu sử
-1,2026-10-17 07:17:41.265644,nguyenvana,Nguyễn Văn An,123456,0901234567,offline,"Đang làm việc, vui lòng để lại tin nhắn 💻"
-2,2026-10-17 07:17:41.265644,lethimai,Lê Thị Mai,123456,0912345678,offline,Cà phê sáng cùng bạn bè ☕
-3,2026-10-17 07:17:41.265644,tranquocbao,Trần Quốc Bảo,123456,0987654321,offline,Học hỏi không ngừng nghỉ 🚀
-4,2026-10-17 07:17:41.265644,phamthuhuong,Phạm Thu Hương,123456,0977889900,offline,Sống trọn từng khoảnh khắc ✨
-5,2026-10-17 07:17:41.265644,dangminhtri,Đặng Minh Trí,123456,0933445566,offline,Creative Designer & Tech Lover 🎨
-6,2026-10-17 07:46:25.500394,b00,duong quốc bảo,12345,0338351415,offline,Thành viên mới tham gia!
-7,2026-10-17 07:47:17.160652,ptk,PHAN TÂN KIÊT,12345,0338351410,offline,Thành viên mới tham gia!
-8,2026-10-17 08:19:02.541730,m50,mét rưỡi,123456,0343465651,offline,Thành viên mới tham gia!
-9,2026-10-17 08:32:11.034718,z,Bảo,bao12345,0326085297,offline,xin chào hé
-10,2026-10-17 08:33:27.413132,b,DƯƠNG,123456789,,offline,
-12,2026-10-17 09:45:01.871300,bb,DƯƠNG,123456789,0334455665,online,helu
-13,2026-10-17 16:37:10.362598,tho2020,Thỏ,123456789,0394916578,offline,Thành viên mới tham gia!
-14,2026-10-20 08:15:31.011352,dai101001000,Dang binh dai,123456789dai.,0383166069,offline,Thành viên mới tham gia!
-15,2026-11-21 13:39:20.232358,zzzz,zz,123456,0112233445,offline,Thành viên mới tham gia!
-16,2026-11-21 14:30:01.294267,nguyenvana_new,Nguyễn Văn A Mới,password123,0988776655,offline,Thành viên mới tham gia!
+﻿ID,Thời gian đăng ký,Tên đăng nhập,Họ và tên,Mật khẩu (Băm Hash),Số điện thoại,Ngày sinh,Giới tính,Trạng thái,Tiểu sử
+1,2026-10-17 07:17:41.265644,nguyenvana,Nguyễn Văn An,scrypt:32768:8:1$h7r6CSDQMW3g6XWX$62cd65a7f304f99702456b6df6826d2f4c7e6ec028ee410ee02a3892b007803909dbf966188e77fa15c79b9cb008187d8a24bcef530332edb429a9ee62b1d7c6,0901234567,,unspecified,offline,"Đang làm việc, vui lòng để lại tin nhắn 💻"
+2,2026-10-17 07:17:41.265644,lethimai,Lê Thị Mai,scrypt:32768:8:1$uxu7afRaAFL5fGpV$0d7b260ceb073af103d3d575b76743588c083bebd06ca0fe47f230d851b162e09d716a17ba06b9bca378c05dd498ab4a558f40ece5905d9f351b0909d42d9c0c,0912345678,,unspecified,offline,Cà phê sáng cùng bạn bè ☕
+3,2026-10-17 07:17:41.265644,tranquocbao,Trần Quốc Bảo,scrypt:32768:8:1$hLDd4arMkL3yVeZO$3fa2f92f60abdc09ed99ba3c74a98827c9d56d5447d5eb10c54b6acf3b510b76fb8ac8f0ef395e66d6d212f35d6a2e958bea41fd5e93e68257417db3de849876,0987654321,,unspecified,offline,Học hỏi không ngừng nghỉ 🚀
+4,2026-10-17 07:17:41.265644,phamthuhuong,Phạm Thu Hương,scrypt:32768:8:1$UsGuM0nu6cnPxg24$47f5bc6c97ae6029ce7aed534bb1ea338a4b90d5c37e762c8fd4d98803393d04ae52563c07a5dfeb5aa63869f6e155b749f4e0869b40696e765027fa65e84c48,0977889900,,unspecified,offline,Sống trọn từng khoảnh khắc ✨
+5,2026-10-17 07:17:41.265644,dangminhtri,Đặng Minh Trí,scrypt:32768:8:1$nVkzFJ4mJQ4yfuYi$fe6630fdd5e7d64cd9013b1bb4757c94a89453942c0fec808dac580d95954967ea1c0fd7a79b816e269e326d490fb3dd0fb9611e213ea6e6a7a9e2f9e5ea6014,0933445566,,unspecified,offline,Creative Designer & Tech Lover 🎨
+6,2026-10-17 07:46:25.500394,b00,duong quốc bảo,scrypt:32768:8:1$oXeK0L9avor2nDLW$5e03c26f810309ffbb111dea69fb53339ff75bb4e9a881983fb49d676b20ceeb6a138710e9df3f84fda15c9fcc82f695d50cb7df8854ca1a8cdd22eb4acf4f7a,0338351415,,unspecified,offline,Thành viên mới tham gia!
+7,2026-10-17 07:47:17.160652,ptk,PHAN TÂN KIÊT,scrypt:32768:8:1$rA8iyK64ab4TDqoZ$39fd5c75ca7ff96956873310f0de5aad8d1792786edf5b9bd53e0ae4fc486af01017264cf462115633480aae693506538a9017ed99f0c91346388709f8eac015,0338351410,,unspecified,offline,Thành viên mới tham gia!
+8,2026-10-17 08:19:02.541730,m50,mét rưỡi,scrypt:32768:8:1$pzDVp0c8FS5zKiX1$defba3da7a83d46432a5b1582e0d2494244ecc8a80845257e869d43472f7f724d55921c959399808692b5bd5704034a4264e6715af52b58d00f381ca1800e5c1,0343465651,,unspecified,offline,Thành viên mới tham gia!
+9,2026-10-17 08:32:11.034718,z,Bảo,scrypt:32768:8:1$83q9wUDrGksuECZC$cd015278d85bd4a6f1040eb2033dce560f3d5f1403dbb798b90023e53761f1d89ad53d6e339d995a99799b9b305358a5affa082cf0789abe8f7d20f492e38902,0326085297,2000-02-22,male,online,xin chào hé
+10,2026-10-17 08:33:27.413132,b,DƯƠNG,scrypt:32768:8:1$RDUcP7NMTpAg6v1t$f5f229570807c54a3882b4fb99f3da5476da51d4e03229b76af891e7b2e3664807a0435b59f91582576946abf618d8fa6ff4d3c645b6196fcec6aeecdb748c80,,,unspecified,offline,
+12,2026-10-17 09:45:01.871300,bb,DƯƠNG,scrypt:32768:8:1$ZWb0ELrPRivIB0D3$1c1421a764a9c0662b7b28c3b46f323c22cfef2c2a1d6ad2646d29afb280911e3fc0869b6f931f3679483a464d81eec37f25100aa940a2b48648204018d44e97,0334455665,2001-10-07,male,offline,helu
+13,2026-10-17 16:37:10.362598,tho2020,Thỏ,scrypt:32768:8:1$tWVCvWTG3EX0I94q$8d1b5c262fb069df0f5b8d7daf943062a6687282e085b618631356a591bcc7af69389d34f3e5a821898cc887b5a8885e1649e33897150cdbe6b90ba413d461a7,0394916578,,unspecified,offline,Thành viên mới tham gia!
+14,2026-10-20 08:15:31.011352,dai101001000,Dang binh dai,scrypt:32768:8:1$zLsETXgyRAerbuzm$efb18fdf1cce6dc7bf60ca7c30becb74053fd3a05624d68ed5359385cb904a6f45a85252b05b1c7f9d940b893aee6acfc5ca01cbe5b543b276251315b28ad783,0383166069,,unspecified,offline,Thành viên mới tham gia!
+15,2026-11-21 13:39:20.232358,zzzz,zz,scrypt:32768:8:1$YwFxKLFXMqUXjPgC$8aa69b02d2dc4184cb28cf308e262498da79f4c006ba741078c66ddf0afeae73cbdaa31cc00586a6cd79f9c5398cf21399841fb938ed9b1622644edb7385ce10,0112233445,,unspecified,offline,Thành viên mới tham gia!
+17,2026-11-21 14:36:49.253135,vn,uuuuuu,scrypt:32768:8:1$RWMdVKkSYlp3y4Em$42bb92ffff1f0b7b3dc4ea9d33d012656daebbe21cc49d2a3bdb55f72c53e45585aeacc8e84648a5a9871980e77be2bf9a6c4e223ba6ea705d98e6890c6329ed,0998877665,,unspecified,offline,Thành viên mới tham gia!

@@ -7,6 +7,7 @@ from flask import Flask, render_template, request, jsonify, session, send_from_d
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 import cloudinary
 import cloudinary.uploader
 
@@ -225,10 +226,13 @@ def auth_register():
 
     avatar_url = data.get("avatar_url") or f"https://api.dicebear.com/7.x/bottts/svg?seed={username}&backgroundColor=b6e3f4,ffd5dc,c0aede"
     
+    # Băm mật khẩu theo chuẩn bảo mật Password Hashing trước khi lưu DB
+    hashed_password = generate_password_hash(password)
+
     cur = conn.execute("""
         INSERT INTO users (username, phone, password, display_name, avatar_url, status, bio)
         VALUES (?, ?, ?, ?, ?, 'online', 'Thành viên mới tham gia!')
-    """, (username, phone or None, password, display_name, avatar_url))
+    """, (username, phone or None, hashed_password, display_name, avatar_url))
     user_id = cur.lastrowid
     conn.commit()
 
@@ -258,6 +262,86 @@ def export_accounts_json():
     database.sync_accounts_to_files()
     return send_file("accounts.json", as_attachment=False)
 
+@app.route("/api/admin/users", methods=["GET"])
+def admin_get_users():
+    """Lấy toàn bộ thông tin chi tiết danh sách tài khoản cho Admin (kèm chuỗi băm password hash)"""
+    current_uid = get_current_user_id()
+    if not current_uid:
+        return jsonify({"error": "Vui lòng đăng nhập để truy cập quản trị!"}), 401
+    
+    conn = database.get_db()
+    rows = conn.execute("""
+        SELECT id, username, COALESCE(phone, '') as phone, password, display_name, 
+               avatar_url, status, COALESCE(bio, '') as bio, 
+               COALESCE(dob, '') as dob, COALESCE(gender, 'unspecified') as gender,
+               created_at, last_seen
+        FROM users
+        ORDER BY id ASC
+    """).fetchall()
+    conn.close()
+
+    users_list = []
+    for r in rows:
+        item = dict(r) if hasattr(r, "keys") else dict(zip(
+            ["id", "username", "phone", "password", "display_name", "avatar_url", "status", "bio", "dob", "gender", "created_at", "last_seen"],
+            r
+        ))
+        pwd = item.get("password") or ""
+        item["is_hashed"] = any(pwd.startswith(p) for p in ("scrypt:", "pbkdf2:", "argon2:", "$2b$", "$2a$"))
+        item["password_hash"] = pwd
+        if item.get("created_at"):
+            item["created_at"] = format_datetime_utc(item["created_at"])
+        if item.get("last_seen"):
+            item["last_seen"] = format_datetime_utc(item["last_seen"])
+        users_list.append(item)
+
+    return jsonify({
+        "success": True, 
+        "users": users_list, 
+        "total": len(users_list),
+        "current_user_id": current_uid
+    })
+
+@app.route("/api/admin/users/<int:target_user_id>/reset-password", methods=["POST"])
+def admin_reset_password(target_user_id):
+    """Admin đặt lại mật khẩu cho tài khoản người dùng (tự động băm an toàn)"""
+    current_uid = get_current_user_id()
+    if not current_uid:
+        return jsonify({"error": "Vui lòng đăng nhập!"}), 401
+
+    data = request.get_json() or {}
+    new_password = str(data.get("new_password", "")).strip()
+    if not new_password:
+        return jsonify({"error": "Mật khẩu mới không được để trống!"}), 400
+
+    success, msg, new_hash = database.reset_user_password(target_user_id, new_password)
+    if success:
+        return jsonify({
+            "success": True, 
+            "message": "Đã đặt lại mật khẩu và băm an toàn thành công!", 
+            "new_hash": new_hash
+        })
+    return jsonify({"error": msg}), 400
+
+@app.route("/api/admin/users/<int:target_user_id>/delete", methods=["POST"])
+def admin_delete_user(target_user_id):
+    """Admin xóa vĩnh viễn tài khoản người dùng khỏi hệ thống"""
+    current_uid = get_current_user_id()
+    if not current_uid:
+        return jsonify({"error": "Vui lòng đăng nhập!"}), 401
+
+    if target_user_id == current_uid:
+        return jsonify({"error": "Bạn không thể tự xóa tài khoản của chính mình!"}), 400
+
+    success, msg = database.delete_user_by_admin(target_user_id)
+    if success:
+        try:
+            socketio.emit("user_deleted", {"user_id": target_user_id})
+        except Exception:
+            pass
+        return jsonify({"success": True, "message": msg})
+    return jsonify({"error": msg}), 400
+
 @app.route("/api/auth/login", methods=["POST"])
 def auth_login():
     data = request.get_json() or {}
@@ -275,7 +359,27 @@ def auth_login():
     """, (login_id, login_id)).fetchone()
     conn.close()
 
-    if not user or user["password"] != password:
+    # Kiểm tra mật khẩu: Hỗ trợ mật khẩu băm (Password Hashing) & tương thích ngược nâng cấp mật khẩu cũ
+    is_valid = False
+    stored_pwd = user["password"] if user else ""
+    if user and stored_pwd:
+        if stored_pwd.startswith(("scrypt:", "pbkdf2:", "argon2:", "$2b$", "$2a$")):
+            is_valid = check_password_hash(stored_pwd, password)
+        else:
+            is_valid = (stored_pwd == password)
+            if is_valid:
+                # Nâng cấp mật khẩu cũ sang chuẩn băm bảo mật ngay lập tức
+                try:
+                    new_hash = generate_password_hash(password)
+                    conn_up = database.get_db()
+                    conn_up.execute("UPDATE users SET password = ? WHERE id = ?", (new_hash, user["id"]))
+                    conn_up.commit()
+                    conn_up.close()
+                    database.sync_accounts_to_files()
+                except Exception as e:
+                    print("[Auth] Lỗi auto upgrade password hash:", e)
+
+    if not user or not is_valid:
         return jsonify({"error": "Tài khoản hoặc mật khẩu không chính xác!"}), 400
 
     session["user_id"] = user["id"]

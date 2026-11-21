@@ -131,6 +131,9 @@
                     <button class="nav-btn" data-action="new-group" title="Tạo nhóm chat">
                         <i class="fa-solid fa-users-viewfinder"></i>
                     </button>
+                    <button class="nav-btn" id="btn-nav-admin" title="🛡️ Quản trị hệ thống & Quản lý tài khoản (Admin)">
+                        <i class="fa-solid fa-shield-halved"></i>
+                    </button>
                 </nav>
             </div>
 
@@ -554,6 +557,9 @@
                     <button class="btn btn-secondary btn-block" id="btn-randomize-avatar" style="margin-top:8px;">
                         <i class="fa-solid fa-dice"></i> Đổi avatar hoạt hình ngẫu nhiên
                     </button>
+                    <button class="btn btn-block btn-admin-trigger" id="btn-open-admin-panel" style="margin-top:10px;">
+                        <i class="fa-solid fa-shield-halved"></i> Quản trị tài khoản & Hệ thống (Admin)
+                    </button>
                 </div>
 
                 <!-- Other User Actions -->
@@ -749,6 +755,173 @@
                 <button class="call-btn btn-end-call" id="btn-call-end" title="Kết thúc cuộc gọi">
                     <i class="fa-solid fa-phone-slash"></i>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. ADMIN DASHBOARD MODAL (QUẢN TRỊ VIÊN HỆ THỐNG) -->
+    <div class="modal-overlay" id="modal-admin-panel" style="display:none; z-index: 100005;">
+        <div class="modal-card modal-admin-card">
+            <!-- Modal Header -->
+            <div class="admin-modal-header">
+                <div class="admin-modal-title-wrap">
+                    <div class="admin-badge-icon">
+                        <i class="fa-solid fa-shield-halved"></i>
+                    </div>
+                    <div>
+                        <h2 class="admin-modal-title">Trung Tâm Quản Trị Hệ Thống</h2>
+                        <p class="admin-modal-subtitle">Quản lý toàn bộ tài khoản, xem thông tin chi tiết, đặt lại mật khẩu và bảo mật mật khẩu băm (Password Hashing)</p>
+                    </div>
+                </div>
+                <div class="admin-header-actions">
+                    <a href="/api/admin/export-accounts" class="btn btn-secondary btn-sm" download title="Tải về file Excel CSV">
+                        <i class="fa-solid fa-file-excel"></i> Xuất CSV
+                    </a>
+                    <a href="/api/admin/accounts-json" target="_blank" class="btn btn-secondary btn-sm" title="Xem dữ liệu thô JSON">
+                        <i class="fa-solid fa-file-code"></i> Xem JSON
+                    </a>
+                    <button class="btn btn-secondary btn-sm" id="btn-admin-refresh" title="Tải lại danh sách">
+                        <i class="fa-solid fa-arrows-rotate"></i> Làm mới
+                    </button>
+                    <button class="modal-close-btn" data-modal="modal-admin-panel">&times;</button>
+                </div>
+            </div>
+
+            <!-- Overview Stats -->
+            <div class="admin-stats-grid">
+                <div class="admin-stat-card">
+                    <div class="admin-stat-icon" style="background: rgba(99, 102, 241, 0.15); color: #818cf8;">
+                        <i class="fa-solid fa-users"></i>
+                    </div>
+                    <div class="admin-stat-info">
+                        <span class="admin-stat-label">Tổng số tài khoản</span>
+                        <span class="admin-stat-val" id="admin-stat-total">0</span>
+                    </div>
+                </div>
+                <div class="admin-stat-card">
+                    <div class="admin-stat-icon" style="background: rgba(16, 185, 129, 0.15); color: #34d399;">
+                        <i class="fa-solid fa-circle-check"></i>
+                    </div>
+                    <div class="admin-stat-info">
+                        <span class="admin-stat-label">Đang hoạt động (Online)</span>
+                        <span class="admin-stat-val" id="admin-stat-online">0</span>
+                    </div>
+                </div>
+                <div class="admin-stat-card">
+                    <div class="admin-stat-icon" style="background: rgba(236, 72, 153, 0.15); color: #f472b6;">
+                        <i class="fa-solid fa-lock"></i>
+                    </div>
+                    <div class="admin-stat-info">
+                        <span class="admin-stat-label">Bảo mật mật khẩu</span>
+                        <span class="admin-stat-val" style="color: #34d399; font-size:14px;">100% Đã băm (Scrypt)</span>
+                    </div>
+                </div>
+                <div class="admin-stat-card">
+                    <div class="admin-stat-icon" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;">
+                        <i class="fa-solid fa-database"></i>
+                    </div>
+                    <div class="admin-stat-info">
+                        <span class="admin-stat-label">Cơ sở dữ liệu</span>
+                        <span class="admin-stat-val" style="font-size:14px;" id="admin-stat-db">SQL Live</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toolbar Filter & Search -->
+            <div class="admin-toolbar">
+                <div class="admin-search-box">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="admin-search-input" placeholder="Tìm kiếm theo Tên, Username, Số điện thoại hoặc ID...">
+                    <button type="button" id="admin-search-clear" style="display:none;">&times;</button>
+                </div>
+                <div class="admin-filter-tabs">
+                    <button class="admin-tab active" data-filter="all">Tất cả (<span id="admin-count-all">0</span>)</button>
+                    <button class="admin-tab" data-filter="online">Đang Online (<span id="admin-count-online">0</span>)</button>
+                    <button class="admin-tab" data-filter="offline">Ngoại tuyến (<span id="admin-count-offline">0</span>)</button>
+                </div>
+            </div>
+
+            <!-- Accounts Table Container -->
+            <div class="admin-table-container">
+                <table class="admin-users-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 50px;">ID</th>
+                            <th>Người dùng</th>
+                            <th>Số điện thoại</th>
+                            <th>Mật khẩu Băm (Hash)</th>
+                            <th>Ngày sinh / Giới tính</th>
+                            <th>Tiểu sử</th>
+                            <th>Trạng thái</th>
+                            <th>Ngày tạo</th>
+                            <th style="width: 140px; text-align: right;">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody id="admin-users-tbody">
+                        <!-- Dynamically populated -->
+                    </tbody>
+                </table>
+                <div id="admin-empty-state" class="admin-empty-state" style="display:none;">
+                    <i class="fa-solid fa-user-slash"></i>
+                    <p>Không tìm thấy tài khoản nào phù hợp</p>
+                </div>
+            </div>
+
+            <div class="admin-modal-footer">
+                <div class="admin-footer-tip">
+                    <i class="fa-solid fa-circle-info"></i> Mật khẩu người dùng được băm bảo mật bằng thuật toán <strong>Scrypt</strong>. Quản trị viên có thể xem toàn bộ chuỗi hash, đặt lại mật khẩu hoặc xóa tài khoản.
+                </div>
+                <button class="btn btn-secondary" data-modal="modal-admin-panel">Đóng bảng quản trị</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- RESET PASSWORD MODAL FOR ADMIN -->
+    <div class="modal-overlay" id="modal-admin-reset-pwd" style="display:none; z-index: 100010;">
+        <div class="modal-card" style="max-width: 440px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fa-solid fa-key" style="color:#f59e0b;"></i> Đặt Lại Mật Khẩu</h3>
+                <button class="modal-close-btn" data-modal="modal-admin-reset-pwd">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="admin-target-user-box" id="admin-reset-target-user">
+                    <!-- User card preview -->
+                </div>
+                <div class="form-group" style="margin-top:14px;">
+                    <label><i class="fa-solid fa-lock"></i> Mật khẩu mới:</label>
+                    <div class="input-password-wrap" style="position:relative; display:flex; align-items:center;">
+                        <input type="text" id="admin-new-pwd-input" class="input-control" placeholder="Nhập mật khẩu mới cho tài khoản" style="padding-right: 40px;" required>
+                        <button type="button" id="btn-generate-random-pwd" class="btn-pwd-helper" title="Tạo mật khẩu ngẫu nhiên mạnh">
+                            <i class="fa-solid fa-dice"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="admin-alert-box" style="margin-top: 10px; padding: 10px 12px; background: rgba(99,102,241,0.1); border-left: 3px solid #6366f1; border-radius: 6px; font-size: 12.5px; color: var(--text-secondary);">
+                    <i class="fa-solid fa-shield-halved" style="color:#6366f1;"></i> Mật khẩu sẽ được băm bảo mật <strong>Password Hashing (Scrypt)</strong> ngay lập tức trước khi lưu vào Database.
+                </div>
+                <div id="admin-reset-pwd-error" class="auth-error" style="display:none; margin-top:10px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-modal="modal-admin-reset-pwd">Hủy</button>
+                <button class="btn btn-primary" id="btn-submit-admin-reset-pwd">
+                    <i class="fa-solid fa-check"></i> Xác nhận đổi mật khẩu
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- USER DETAIL MODAL FOR ADMIN -->
+    <div class="modal-overlay" id="modal-admin-user-detail" style="display:none; z-index: 100010;">
+        <div class="modal-card" style="max-width: 580px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fa-solid fa-id-card" style="color:#6366f1;"></i> Toàn Bộ Hồ Sơ Tài Khoản</h3>
+                <button class="modal-close-btn" data-modal="modal-admin-user-detail">&times;</button>
+            </div>
+            <div class="modal-body" id="admin-user-detail-content">
+                <!-- Populated dynamically -->
+            </div>
+            <div class="modal-footer" id="admin-user-detail-footer">
+                <!-- Actions -->
             </div>
         </div>
     </div>

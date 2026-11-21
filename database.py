@@ -2,6 +2,7 @@ import os
 import json
 import sqlite3
 from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # Neon PostgreSQL Connection URL
 NEON_DB_URL = "postgresql://neondb_owner:npg_SpNcHg1vM0Ko@ep-quiet-lake-b42fo9ae-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
@@ -330,6 +331,88 @@ def init_db():
         conn.commit()
         conn.close()
 
+    # Tự động di chuyển mật khẩu cũ sang chuẩn băm an toàn (Password Hashing)
+    migrate_passwords_to_hash()
+
+def migrate_passwords_to_hash():
+    """Tự động kiểm tra và băm mật khẩu cho tất cả tài khoản nếu chưa băm"""
+    try:
+        conn = get_db()
+        rows = conn.execute("SELECT id, username, password FROM users").fetchall()
+        migrated = 0
+        for r in rows:
+            acc = dict(r) if hasattr(r, "keys") else dict(zip(["id", "username", "password"], r))
+            pwd = acc.get("password") or ""
+            if pwd and not any(pwd.startswith(p) for p in ("scrypt:", "pbkdf2:", "argon2:", "$2b$", "$2a$")):
+                new_hash = generate_password_hash(pwd)
+                conn.execute("UPDATE users SET password = ? WHERE id = ?", (new_hash, acc["id"]))
+                migrated += 1
+        if migrated > 0:
+            conn.commit()
+            print(f"[DB] Đã tự động băm mật khẩu bảo mật (Password Hash) cho {migrated} tài khoản!")
+        conn.close()
+    except Exception as e:
+        print("[DB] Lỗi khi migrate password hash:", e)
+
+def delete_user_by_admin(user_id):
+    """Xóa an toàn tài khoản người dùng và dọn dẹp các quan hệ ràng buộc trong cơ sở dữ liệu"""
+    conn = get_db()
+    try:
+        # 1. Xóa ghim tin nhắn do user ghim hoặc trong tin nhắn của user
+        conn.execute("DELETE FROM pinned_messages WHERE pinned_by = ?", (user_id,))
+        conn.execute("DELETE FROM pinned_messages WHERE message_id IN (SELECT id FROM messages WHERE sender_id = ?)", (user_id,))
+        
+        # 2. Xóa biểu cảm cảm xúc (reactions)
+        conn.execute("DELETE FROM reactions WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM reactions WHERE message_id IN (SELECT id FROM messages WHERE sender_id = ?)", (user_id,))
+        
+        # 3. Xóa push subscriptions
+        conn.execute("DELETE FROM push_subscriptions WHERE user_id = ?", (user_id,))
+        
+        # 4. Xóa tin nhắn do user gửi
+        conn.execute("DELETE FROM messages WHERE sender_id = ?", (user_id,))
+        
+        # 5. Xóa quan hệ bạn bè (cả 2 chiều)
+        conn.execute("DELETE FROM friendships WHERE sender_id = ? OR receiver_id = ?", (user_id, user_id))
+        
+        # 6. Xóa khỏi danh sách thành viên các cuộc trò chuyện
+        conn.execute("DELETE FROM participants WHERE user_id = ?", (user_id,))
+        
+        # 7. Cập nhật nhóm trò chuyện do user tạo
+        conn.execute("UPDATE conversations SET created_by = NULL WHERE created_by = ?", (user_id,))
+        
+        # 8. Xóa tài khoản khỏi bảng users
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        
+        # 9. Tự động đồng bộ ngay ra accounts.csv & accounts.json
+        sync_accounts_to_files()
+        return True, "Đã xóa tài khoản vĩnh viễn khỏi hệ thống!"
+    except Exception as e:
+        conn.close()
+        print("[DB] Lỗi khi xóa tài khoản:", e)
+        return False, str(e)
+
+def reset_user_password(user_id, new_password):
+    """Đặt lại mật khẩu cho tài khoản người dùng (tự động băm an toàn theo chuẩn Password Hashing)"""
+    if not new_password or len(str(new_password).strip()) == 0:
+        return False, "Mật khẩu mới không được để trống!", None
+    
+    conn = get_db()
+    try:
+        new_hash = generate_password_hash(str(new_password).strip())
+        conn.execute("UPDATE users SET password = ? WHERE id = ?", (new_hash, user_id))
+        conn.commit()
+        conn.close()
+        
+        sync_accounts_to_files()
+        return True, "Đặt lại mật khẩu thành công!", new_hash
+    except Exception as e:
+        conn.close()
+        print("[DB] Lỗi khi đặt lại mật khẩu:", e)
+        return False, str(e), None
+
 def sync_accounts_to_files():
     """Tự động đồng bộ toàn bộ danh sách tài khoản người dùng ra file accounts.csv và accounts.json"""
     import csv
@@ -338,7 +421,9 @@ def sync_accounts_to_files():
         conn = get_db()
         rows = conn.execute("""
             SELECT id, username, COALESCE(phone, '') as phone, password, display_name, 
-                   avatar_url, status, bio, created_at, last_seen
+                   avatar_url, status, COALESCE(bio, '') as bio, 
+                   COALESCE(dob, '') as dob, COALESCE(gender, 'unspecified') as gender,
+                   created_at, last_seen
             FROM users
             ORDER BY id ASC
         """).fetchall()
@@ -347,9 +432,12 @@ def sync_accounts_to_files():
         accounts_list = []
         for r in rows:
             acc = dict(r) if hasattr(r, "keys") else dict(zip(
-                ["id", "username", "phone", "password", "display_name", "avatar_url", "status", "bio", "created_at", "last_seen"],
+                ["id", "username", "phone", "password", "display_name", "avatar_url", "status", "bio", "dob", "gender", "created_at", "last_seen"],
                 r
             ))
+            pwd = acc.get("password") or ""
+            acc["is_hashed"] = any(pwd.startswith(p) for p in ("scrypt:", "pbkdf2:", "argon2:", "$2b$", "$2a$"))
+            acc["password_hash"] = pwd
             if acc.get("created_at"):
                 acc["created_at"] = str(acc["created_at"])
             if acc.get("last_seen"):
@@ -363,15 +451,17 @@ def sync_accounts_to_files():
         # 2. Ghi ra file accounts.csv (sử dụng utf-8-sig để Excel mở không bị lỗi font tiếng Việt)
         with open("accounts.csv", "w", encoding="utf-8-sig", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["ID", "Thời gian đăng ký", "Tên đăng nhập", "Họ và tên", "Mật khẩu", "Số điện thoại", "Trạng thái", "Tiểu sử"])
+            writer.writerow(["ID", "Thời gian đăng ký", "Tên đăng nhập", "Họ và tên", "Mật khẩu (Băm Hash)", "Số điện thoại", "Ngày sinh", "Giới tính", "Trạng thái", "Tiểu sử"])
             for r in accounts_list:
                 writer.writerow([
                     r.get("id"),
                     r.get("created_at") or "",
                     r.get("username") or "",
                     r.get("display_name") or "",
-                    r.get("password") or "",
+                    r.get("password_hash") or "",
                     r.get("phone") or "",
+                    r.get("dob") or "",
+                    r.get("gender") or "",
                     r.get("status") or "",
                     r.get("bio") or ""
                 ])
@@ -389,12 +479,13 @@ def seed_db():
         conn.close()
         return
 
+    default_hashed_pwd = generate_password_hash("123456")
     users_data = [
-        ("nguyenvana", "123456", "Nguyễn Văn An", "https://api.dicebear.com/7.x/bottts/svg?seed=AnNguyen&backgroundColor=b6e3f4,c0aede,d1d4f9", "online", "Đang làm việc, vui lòng để lại tin nhắn 💻"),
-        ("lethimai", "123456", "Lê Thị Mai", "https://api.dicebear.com/7.x/bottts/svg?seed=MaiLe&backgroundColor=ffd5dc,ffdfbf,d1d4f9", "online", "Cà phê sáng cùng bạn bè ☕"),
-        ("tranquocbao", "123456", "Trần Quốc Bảo", "https://api.dicebear.com/7.x/bottts/svg?seed=BaoTran&backgroundColor=c0aede,b6e3f4,ffd5dc", "busy", "Học hỏi không ngừng nghỉ 🚀"),
-        ("phamthuhuong", "123456", "Phạm Thu Hương", "https://api.dicebear.com/7.x/bottts/svg?seed=HuongPham&backgroundColor=ffdfbf,ffd5dc,b6e3f4", "away", "Sống trọn từng khoảnh khắc ✨"),
-        ("dangminhtri", "123456", "Đặng Minh Trí", "https://api.dicebear.com/7.x/bottts/svg?seed=TriDang&backgroundColor=d1d4f9,c0aede,b6e3f4", "online", "Creative Designer & Tech Lover 🎨")
+        ("nguyenvana", default_hashed_pwd, "Nguyễn Văn An", "https://api.dicebear.com/7.x/bottts/svg?seed=AnNguyen&backgroundColor=b6e3f4,c0aede,d1d4f9", "online", "Đang làm việc, vui lòng để lại tin nhắn 💻"),
+        ("lethimai", default_hashed_pwd, "Lê Thị Mai", "https://api.dicebear.com/7.x/bottts/svg?seed=MaiLe&backgroundColor=ffd5dc,ffdfbf,d1d4f9", "online", "Cà phê sáng cùng bạn bè ☕"),
+        ("tranquocbao", default_hashed_pwd, "Trần Quốc Bảo", "https://api.dicebear.com/7.x/bottts/svg?seed=BaoTran&backgroundColor=c0aede,b6e3f4,ffd5dc", "busy", "Học hỏi không ngừng nghỉ 🚀"),
+        ("phamthuhuong", default_hashed_pwd, "Phạm Thu Hương", "https://api.dicebear.com/7.x/bottts/svg?seed=HuongPham&backgroundColor=ffdfbf,ffd5dc,b6e3f4", "away", "Sống trọn từng khoảnh khắc ✨"),
+        ("dangminhtri", default_hashed_pwd, "Đặng Minh Trí", "https://api.dicebear.com/7.x/bottts/svg?seed=TriDang&backgroundColor=d1d4f9,c0aede,b6e3f4", "online", "Creative Designer & Tech Lover 🎨")
     ]
 
     cursor.executemany("""
