@@ -686,27 +686,52 @@
         </div>
     </div>
 
-    <!-- Call Overlay (Voice / Video Call Simulation) -->
+    <!-- Call Overlay (Modern Full-Featured Voice & Video Call) -->
     <div class="call-overlay" id="call-overlay" style="display:none;">
-        <div class="call-window">
+        <div class="call-window" id="call-window">
+            <!-- Blur backdrop for aesthetic background -->
+            <div class="call-backdrop-blur" id="call-backdrop-blur"></div>
+
             <div class="call-header">
-                <span class="call-type-badge" id="call-type-badge"><i class="fa-solid fa-video"></i> Cuộc gọi
-                    Video</span>
-                <span class="call-timer" id="call-timer">Đang gọi...</span>
+                <div class="call-header-left">
+                    <span class="call-type-badge" id="call-type-badge">
+                        <i class="fa-solid fa-video"></i> Cuộc gọi Video
+                    </span>
+                    <span class="call-timer" id="call-timer">Đang gọi...</span>
+                </div>
+                <div class="call-header-right">
+                    <button class="call-action-icon" id="btn-call-fullscreen" title="Toàn màn hình">
+                        <i class="fa-solid fa-expand"></i>
+                    </button>
+                </div>
             </div>
 
             <div class="call-video-container" id="call-video-container">
                 <div class="remote-screen" id="remote-screen">
-                    <img id="call-remote-avatar" src="" alt="Remote" class="call-big-avatar">
-                    <h3 id="call-remote-name" class="call-name">--</h3>
-                    <p id="call-status-state" class="call-state">Đang đổ chuông...</p>
+                    <!-- Central Info for voice call or ringing state -->
+                    <div class="call-info-center" id="call-info-center">
+                        <div class="call-avatar-wrapper">
+                            <div class="call-wave-ring ring-1"></div>
+                            <div class="call-wave-ring ring-2"></div>
+                            <img id="call-remote-avatar" src="" alt="Remote" class="call-big-avatar">
+                        </div>
+                        <h3 id="call-remote-name" class="call-name">--</h3>
+                        <p id="call-status-state" class="call-state">Đang đổ chuông...</p>
+                    </div>
+
+                    <!-- Remote Video Feed (Full Viewport HD/FullHD) -->
                     <video id="remote-video-feed" autoplay playsinline style="display:none;"></video>
                 </div>
 
-                <div class="local-screen" id="local-screen" style="display:none;">
+                <!-- Local Video Feed (Self-View Picture-in-Picture) -->
+                <div class="local-screen" id="local-screen" style="display:none;" title="Chạm để chuyển vị trí">
                     <video id="local-video-feed" autoplay playsinline muted></video>
-                    <span class="local-label">Bạn</span>
+                    <div class="local-cam-off-placeholder" id="local-cam-off-placeholder" style="display:none;">
+                        <i class="fa-solid fa-video-slash"></i>
+                    </div>
+                    <span class="local-label"><i class="fa-solid fa-user"></i> Bạn</span>
                 </div>
+
                 <!-- Dedicated Remote Audio Sink -->
                 <audio id="remote-audio-feed" autoplay playsinline style="display:none;"></audio>
             </div>
@@ -717,6 +742,9 @@
                 </button>
                 <button class="call-btn btn-cam" id="btn-call-cam" title="Bật/Tắt Camera">
                     <i class="fa-solid fa-video"></i>
+                </button>
+                <button class="call-btn btn-switch-cam" id="btn-call-switch-cam" title="Đổi camera trước/sau" style="display:none;">
+                    <i class="fa-solid fa-camera-rotate"></i>
                 </button>
                 <button class="call-btn btn-end-call" id="btn-call-end" title="Kết thúc cuộc gọi">
                     <i class="fa-solid fa-phone-slash"></i>

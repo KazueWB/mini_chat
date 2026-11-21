@@ -1,4 +1,5 @@
-// Voice & Video Call Module for Chat Together Web with Real WebRTC & Realtime Signaling
+// Voice & Video Call Module for Chat Together Web with High-Definition WebRTC & Realtime Signaling
+// Designed to match the logic & UX of top apps (Zalo / Messenger / FaceTime)
 class CallManager {
     constructor() {
         this.activeCall = null;
@@ -10,9 +11,15 @@ class CallManager {
         this.isMuted = false;
         this.isCamOff = false;
         this.callTimeoutTimer = null;
+        this.currentFacingMode = "user"; // "user" (front) or "environment" (back)
+        this.isFullscreen = false;
+        this.pipPositionIndex = 0; // 0: bottom-right, 1: bottom-left, 2: top-left, 3: top-right
 
         // Overlay & Controls Elements
         this.overlay = null;
+        this.callWindow = null;
+        this.callBackdropBlur = null;
+        this.callInfoCenter = null;
         this.timerEl = null;
         this.nameEl = null;
         this.stateEl = null;
@@ -22,8 +29,11 @@ class CallManager {
         this.remoteVideo = null;
         this.remoteAudio = null;
         this.localScreen = null;
+        this.localCamOffPlaceholder = null;
         this.btnMic = null;
         this.btnCam = null;
+        this.btnSwitchCam = null;
+        this.btnFullscreen = null;
         this.btnEnd = null;
 
         // Incoming Call Modal Elements
@@ -49,6 +59,9 @@ class CallManager {
 
         // Main Call Overlay
         this.overlay = document.getElementById("call-overlay");
+        this.callWindow = document.getElementById("call-window");
+        this.callBackdropBlur = document.getElementById("call-backdrop-blur");
+        this.callInfoCenter = document.getElementById("call-info-center");
         this.timerEl = document.getElementById("call-timer");
         this.nameEl = document.getElementById("call-remote-name");
         this.stateEl = document.getElementById("call-status-state");
@@ -58,9 +71,12 @@ class CallManager {
         this.remoteVideo = document.getElementById("remote-video-feed");
         this.remoteAudio = document.getElementById("remote-audio-feed");
         this.localScreen = document.getElementById("local-screen");
+        this.localCamOffPlaceholder = document.getElementById("local-cam-off-placeholder");
 
         this.btnMic = document.getElementById("btn-call-mic");
         this.btnCam = document.getElementById("btn-call-cam");
+        this.btnSwitchCam = document.getElementById("btn-call-switch-cam");
+        this.btnFullscreen = document.getElementById("btn-call-fullscreen");
         this.btnEnd = document.getElementById("btn-call-end");
 
         // Incoming Call Modal
@@ -74,12 +90,48 @@ class CallManager {
 
         if (this.btnMic) this.btnMic.addEventListener("click", () => this.toggleMic());
         if (this.btnCam) this.btnCam.addEventListener("click", () => this.toggleCam());
+        if (this.btnSwitchCam) this.btnSwitchCam.addEventListener("click", () => this.switchCamera());
+        if (this.btnFullscreen) this.btnFullscreen.addEventListener("click", () => this.toggleFullscreen());
         if (this.btnEnd) this.btnEnd.addEventListener("click", () => this.endCall(true));
 
         if (this.btnAccept) this.btnAccept.addEventListener("click", () => this.acceptCall());
         if (this.btnDecline) this.btnDecline.addEventListener("click", () => this.declineCall());
 
+        // Chạm vào khung video nhỏ của mình để chuyển vị trí (góc)
+        if (this.localScreen) {
+            this.localScreen.addEventListener("click", () => this.cyclePipPosition());
+        }
+
         this.initialized = true;
+    }
+
+    // Chuyển vị trí PiP (4 góc màn hình như Zalo / FaceTime)
+    cyclePipPosition() {
+        if (!this.localScreen) return;
+        this.pipPositionIndex = (this.pipPositionIndex + 1) % 4;
+        const positions = [
+            { bottom: "110px", right: "24px", top: "auto", left: "auto" }, // bottom-right
+            { bottom: "110px", left: "24px", top: "auto", right: "auto" },  // bottom-left
+            { top: "80px", left: "24px", bottom: "auto", right: "auto" },    // top-left
+            { top: "80px", right: "24px", bottom: "auto", left: "auto" }     // top-right
+        ];
+        const p = positions[this.pipPositionIndex];
+        this.localScreen.style.bottom = p.bottom;
+        this.localScreen.style.right = p.right;
+        this.localScreen.style.top = p.top;
+        this.localScreen.style.left = p.left;
+    }
+
+    // Bật / tắt toàn màn hình (Fullscreen toggle)
+    toggleFullscreen() {
+        if (!this.callWindow) return;
+        this.isFullscreen = !this.isFullscreen;
+        this.callWindow.classList.toggle("fullscreen", this.isFullscreen);
+        if (this.btnFullscreen) {
+            this.btnFullscreen.innerHTML = this.isFullscreen 
+                ? '<i class="fa-solid fa-compress"></i>' 
+                : '<i class="fa-solid fa-expand"></i>';
+        }
     }
 
     // Helper: format current HH:mm in Vietnam Time (UTC+7)
@@ -279,50 +331,158 @@ class CallManager {
         }
     }
 
+    // ⚡ LẤY LUỒNG CAMERA / MICRO CHẤT LƯỢNG CAO (HD 720p / 1080p, 30fps)
     async _acquireLocalMediaStream(type) {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            console.warn("[WebRTC] Trình duyệt không hỗ trợ getUserMedia trên context này (hoặc chạy qua HTTP). Sử dụng luồng thay thế.");
+            console.warn("[WebRTC] Trình duyệt không hỗ trợ getUserMedia trên context này. Sử dụng luồng thay thế.");
             return this.createDummyMediaStream(type);
         }
 
         const audioConstraints = {
             echoCancellation: true,
             noiseSuppression: true,
-            autoGainControl: true
+            autoGainControl: true,
+            channelCount: 2
         };
 
         if (type === "video") {
+            // Tầng 1: Thử lấy chuẩn HD 720p/1080p sắc nét (ideal 1280x720, max 1920x1080, 30fps)
             try {
                 return await navigator.mediaDevices.getUserMedia({
                     audio: audioConstraints,
                     video: {
-                        width: { ideal: 640 },
-                        height: { ideal: 480 },
-                        facingMode: "user"
+                        width: { ideal: 1280, max: 1920, min: 640 },
+                        height: { ideal: 720, max: 1080, min: 480 },
+                        frameRate: { ideal: 30, min: 20 },
+                        facingMode: this.currentFacingMode || "user"
                     }
                 });
-            } catch (err) {
-                console.warn("[WebRTC] Không lấy được camera, chuyển sang chỉ dùng micro:", err);
+            } catch (errHigh) {
+                console.warn("[WebRTC] Không lấy được độ phân giải HD, thử lấy camera cơ bản:", errHigh);
+                // Tầng 2: Fallback lấy camera cơ bản
                 try {
                     return await navigator.mediaDevices.getUserMedia({
                         audio: audioConstraints,
-                        video: false
+                        video: {
+                            facingMode: this.currentFacingMode || "user"
+                        }
                     });
-                } catch (audioErr) {
-                    console.warn("[WebRTC] Không lấy được micro thật, dùng dummy stream để kết nối:", audioErr);
-                    return this.createDummyMediaStream(type);
+                } catch (errBasic) {
+                    console.warn("[WebRTC] Không lấy được camera, chuyển sang chỉ dùng micro:", errBasic);
+                    // Tầng 3: Chỉ dùng audio
+                    try {
+                        return await navigator.mediaDevices.getUserMedia({
+                            audio: audioConstraints,
+                            video: false
+                        });
+                    } catch (audioErr) {
+                        console.warn("[WebRTC] Không lấy được micro thật, dùng dummy stream:", audioErr);
+                        return this.createDummyMediaStream(type);
+                    }
                 }
             }
         } else {
+            // Cuộc gọi thoại (Audio only)
             try {
                 return await navigator.mediaDevices.getUserMedia({
                     audio: audioConstraints,
                     video: false
                 });
             } catch (err) {
-                console.warn("[WebRTC] Không lấy được micro, dùng dummy stream để kết nối:", err);
+                console.warn("[WebRTC] Không lấy được micro, dùng dummy stream:", err);
                 return this.createDummyMediaStream(type);
             }
+        }
+    }
+
+    // ⚡ CHUYỂN ĐỔI CAMERA TRƯỚC / SAU (SWITCH / FLIP CAMERA) - CHUẨN ZALO & MESSENGER
+    async switchCamera() {
+        if (!this.activeCall || this.activeCall.type !== "video" || !this.localStream) return;
+        const newFacing = this.currentFacingMode === "user" ? "environment" : "user";
+        console.log(`[WebRTC] Đang chuyển camera sang: ${newFacing}`);
+
+        try {
+            // Xin track video mới với facingMode mong muốn
+            let newStream = null;
+            try {
+                newStream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        width: { ideal: 1280, max: 1920 },
+                        height: { ideal: 720, max: 1080 },
+                        facingMode: { exact: newFacing }
+                    }
+                });
+            } catch (eExact) {
+                newStream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: { facingMode: newFacing }
+                });
+            }
+
+            const newVideoTrack = newStream.getVideoTracks()[0];
+            if (!newVideoTrack) return;
+
+            // Dừng track camera cũ
+            const oldVideoTrack = this.localStream.getVideoTracks()[0];
+            if (oldVideoTrack) {
+                oldVideoTrack.stop();
+                this.localStream.removeTrack(oldVideoTrack);
+            }
+
+            // Gắn track mới vào localStream
+            this.localStream.addTrack(newVideoTrack);
+
+            // Cập nhật thẻ video của mình
+            if (this.localVideo) {
+                this.localVideo.srcObject = this.localStream;
+                // Camera trước thì lật gương, camera sau thì không lật
+                this.localVideo.style.transform = newFacing === "user" ? "scaleX(-1)" : "none";
+            }
+
+            // Thay thế track trên WebRTC PeerConnection trong 0ms không gián đoạn cuộc gọi
+            if (this.peerConnection) {
+                const senders = this.peerConnection.getSenders();
+                const videoSender = senders.find(s => s.track && s.track.kind === "video");
+                if (videoSender) {
+                    await videoSender.replaceTrack(newVideoTrack);
+                    this.applyHighQualityVideoBitrate();
+                }
+            }
+
+            this.currentFacingMode = newFacing;
+        } catch (err) {
+            console.warn("[WebRTC] Lỗi chuyển camera:", err);
+        }
+    }
+
+    // ⚡ TĂNG CƯỜNG BITRATE WEBRTC LÊN 2.5 Mbps ĐỂ HÌNH ẢNH NÉT CĂNG
+    applyHighQualityVideoBitrate() {
+        if (!this.peerConnection) return;
+        try {
+            this.peerConnection.getSenders().forEach(sender => {
+                if (sender.track && sender.track.kind === "video") {
+                    const params = sender.getParameters();
+                    if (!params.encodings || params.encodings.length === 0) {
+                        params.encodings = [{}];
+                    }
+                    params.encodings[0].maxBitrate = 2500000; // 2.5 Mbps Full HD
+                    params.encodings[0].maxFramerate = 30;
+                    sender.setParameters(params).catch(() => {});
+                }
+            });
+        } catch (e) {
+            console.warn("[WebRTC] applyHighQualityVideoBitrate warning:", e);
+        }
+    }
+
+    // Chèn cấu hình bandwidth vào SDP Offer/Answer
+    boostSdpQuality(sdp) {
+        if (!sdp) return sdp;
+        try {
+            return sdp.replace(/(m=video [^\r\n]*\r\n)/, '$1b=AS:2500\r\nb=TIAS:2500000\r\n');
+        } catch (e) {
+            return sdp;
         }
     }
 
@@ -347,10 +507,21 @@ class CallManager {
             startTime: null
         };
         this.pendingIceCandidates = [];
+        this.currentFacingMode = "user";
 
+        // Thiết lập giao diện Caller
         this.nameEl.textContent = callTargetName;
-        this.avatarEl.src = callTargetAvatar;
-        this.avatarEl.style.display = "block";
+        this.avatarEl.src = callTargetAvatar || "/static/img/default-avatar.svg";
+        if (this.callBackdropBlur) {
+            this.callBackdropBlur.style.backgroundImage = `url('${callTargetAvatar || "/static/img/default-avatar.svg"}')`;
+        }
+
+        // Hiện box info giữa màn hình lúc đang chờ đổ chuông
+        if (this.callInfoCenter) {
+            this.callInfoCenter.style.display = "flex";
+            this.callInfoCenter.style.opacity = "1";
+        }
+
         this.remoteVideo.style.display = "none";
         this.remoteVideo.srcObject = null;
         if (this.remoteAudio) this.remoteAudio.srcObject = null;
@@ -361,6 +532,18 @@ class CallManager {
         this.stateEl.textContent = "Đang đổ chuông...";
         this.timerEl.textContent = "Đang gọi...";
         this.overlay.style.display = "flex";
+
+        // Nút camera và nút đổi camera
+        if (this.btnSwitchCam) {
+            this.btnSwitchCam.style.display = type === "video" ? "flex" : "none";
+        }
+        if (this.btnCam) {
+            this.btnCam.style.display = type === "video" ? "flex" : "none";
+            this.btnCam.classList.remove("active-muted");
+        }
+        if (this.btnMic) {
+            this.btnMic.classList.remove("active-muted");
+        }
 
         window.soundManager.startRinging();
 
@@ -378,23 +561,29 @@ class CallManager {
             conversation_id: convId
         });
 
-        // Khởi tạo mic/cam song song trong nền (không làm trễ chuông reo của đối phương)
-        this.getLocalMediaStream(type).then(stream => {
-            this.localStream = stream;
-            if (stream && type === "video" && stream.getVideoTracks().length > 0) {
-                this.localScreen.style.display = "block";
-                this.localVideo.srcObject = stream;
-            } else {
-                this.localScreen.style.display = "none";
-            }
-            if (this.peerConnection && stream) {
-                stream.getTracks().forEach(track => {
-                    this.peerConnection.addTrack(track, stream);
-                });
-            }
-        }).catch(err => {
-            console.warn("[WebRTC] getLocalMediaStream in background:", err);
-        });
+        // ⚡ NẾU GỌI VIDEO: Bật camera của Caller ngay để Caller xem trước khuôn mặt mình (chuẩn Messenger / Zalo)
+        if (type === "video") {
+            this.getLocalMediaStream("video").then(stream => {
+                this.localStream = stream;
+                if (stream && stream.getVideoTracks().length > 0) {
+                    this.localScreen.style.display = "block";
+                    this.localVideo.srcObject = stream;
+                    this.localVideo.style.transform = "scaleX(-1)";
+                }
+                if (this.peerConnection && stream) {
+                    stream.getTracks().forEach(track => {
+                        this.peerConnection.addTrack(track, stream);
+                    });
+                    this.applyHighQualityVideoBitrate();
+                }
+            }).catch(err => {
+                console.warn("[WebRTC] Caller getLocalMediaStream warning:", err);
+            });
+        } else {
+            // Gọi thoại: Chỉ lấy micro
+            this.localScreen.style.display = "none";
+            this.getLocalMediaStream("audio").catch(() => {});
+        }
 
         // 35s Timeout: If receiver does not answer, log missed call!
         this.callTimeoutTimer = setTimeout(() => {
@@ -453,6 +642,7 @@ class CallManager {
                 startTime: null
             };
             this.pendingIceCandidates = [];
+            this.currentFacingMode = "user";
 
             this.incomingName.textContent = data.caller ? data.caller.display_name : "Cuộc gọi đến";
             this.incomingAvatar.src = (data.caller && data.caller.avatar_url) ? data.caller.avatar_url : "/static/img/default-avatar.svg";
@@ -591,8 +781,16 @@ class CallManager {
 
         // Setup Main Overlay for Callee
         this.nameEl.textContent = call.targetUser.display_name;
-        this.avatarEl.src = call.targetUser.avatar_url;
-        this.avatarEl.style.display = "block";
+        this.avatarEl.src = call.targetUser.avatar_url || "/static/img/default-avatar.svg";
+        if (this.callBackdropBlur) {
+            this.callBackdropBlur.style.backgroundImage = `url('${call.targetUser.avatar_url || "/static/img/default-avatar.svg"}')`;
+        }
+
+        if (this.callInfoCenter) {
+            this.callInfoCenter.style.display = "flex";
+            this.callInfoCenter.style.opacity = "1";
+        }
+
         this.remoteVideo.style.display = "none";
         this.remoteVideo.srcObject = null;
         if (this.remoteAudio) this.remoteAudio.srcObject = null;
@@ -602,6 +800,17 @@ class CallManager {
             : '<i class="fa-solid fa-phone"></i> Cuộc gọi thoại';
         this.overlay.style.display = "flex";
         this.stateEl.textContent = "Đang kết nối...";
+
+        if (this.btnSwitchCam) {
+            this.btnSwitchCam.style.display = call.type === "video" ? "flex" : "none";
+        }
+        if (this.btnCam) {
+            this.btnCam.style.display = call.type === "video" ? "flex" : "none";
+            this.btnCam.classList.remove("active-muted");
+        }
+        if (this.btnMic) {
+            this.btnMic.classList.remove("active-muted");
+        }
 
         // ⚡ TỐI ƯU SIÊU TỐC: Báo ngay cho Caller biết Callee đã nhấc máy (0ms) để ngắt chuông tút tút ngay tức khắc
         window.chatSocket.sendCallSignal({
@@ -613,12 +822,13 @@ class CallManager {
 
         this.connectCall();
 
-        // Lấy mic/cam song song và nạp vào kết nối đàm thoại
+        // Lấy mic/cam chất lượng cao và nạp vào kết nối đàm thoại
         this.getLocalMediaStream(call.type).then(stream => {
             this.localStream = stream;
             if (stream && call.type === "video" && stream.getVideoTracks().length > 0) {
                 this.localScreen.style.display = "block";
                 this.localVideo.srcObject = stream;
+                this.localVideo.style.transform = "scaleX(-1)";
             } else {
                 this.localScreen.style.display = "none";
             }
@@ -626,6 +836,7 @@ class CallManager {
                 stream.getTracks().forEach(track => {
                     this.peerConnection.addTrack(track, stream);
                 });
+                this.applyHighQualityVideoBitrate();
             }
         }).catch(e => console.warn("[WebRTC] Callee local media error:", e));
     }
@@ -792,6 +1003,7 @@ class CallManager {
         this.stopTitleBlink();
         this.incomingCallData = null;
         this.mediaPromise = null;
+        this.currentFacingMode = "user";
 
         if (this.timerInterval) {
             clearInterval(this.timerInterval);
@@ -802,9 +1014,12 @@ class CallManager {
             this.callTimeoutTimer = null;
         }
 
+        // TẮT TOÀN BỘ TRACK CAMERA VÀ MICRO (ĐÈN WEBCAM TẮT NGAY LẬP TỨC)
         if (this.localStream) {
             try {
-                this.localStream.getTracks().forEach(t => t.stop());
+                this.localStream.getTracks().forEach(t => {
+                    t.stop();
+                });
             } catch (e) {}
             this.localStream = null;
         }
@@ -821,6 +1036,8 @@ class CallManager {
 
         this.pendingIceCandidates = [];
         this.activeCall = null;
+        this.isMuted = false;
+        this.isCamOff = false;
 
         if (this.remoteAudio) {
             try {
@@ -843,10 +1060,35 @@ class CallManager {
             } catch (e) {}
         }
 
+        if (this.callInfoCenter) {
+            this.callInfoCenter.style.display = "flex";
+            this.callInfoCenter.style.opacity = "1";
+        }
+
+        if (this.localCamOffPlaceholder) {
+            this.localCamOffPlaceholder.style.display = "none";
+        }
+
         if (this.overlay) this.overlay.style.display = "none";
-        if (this.localScreen) this.localScreen.style.display = "none";
-        if (this.avatarEl) this.avatarEl.style.display = "block";
+        if (this.localScreen) {
+            this.localScreen.style.display = "none";
+            // Reset PiP corner
+            this.pipPositionIndex = 0;
+            this.localScreen.style.bottom = "110px";
+            this.localScreen.style.right = "24px";
+            this.localScreen.style.top = "auto";
+            this.localScreen.style.left = "auto";
+        }
         if (this.incomingModal) this.incomingModal.style.display = "none";
+
+        // Reset fullscreen if was set
+        if (this.isFullscreen && this.callWindow) {
+            this.isFullscreen = false;
+            this.callWindow.classList.remove("fullscreen");
+            if (this.btnFullscreen) {
+                this.btnFullscreen.innerHTML = '<i class="fa-solid fa-expand"></i>';
+            }
+        }
     }
 
     // ---------------- WEBRTC IMPLEMENTATION ----------------
@@ -873,6 +1115,7 @@ class CallManager {
             this.localStream.getTracks().forEach(track => {
                 pc.addTrack(track, this.localStream);
             });
+            this.applyHighQualityVideoBitrate();
         }
 
         // On local ICE candidate generated: send to peer
@@ -900,12 +1143,20 @@ class CallManager {
                 }
             }
 
-            // Video track -> connect to remote-video-feed & reveal
+            // Video track -> connect to remote-video-feed & reveal full screen
             if (e.track.kind === "video") {
                 if (this.remoteVideo) {
                     this.remoteVideo.srcObject = stream;
                     this.remoteVideo.style.display = "block";
-                    if (this.avatarEl) this.avatarEl.style.display = "none";
+                    // Ẩn avatar trung tâm để nhường trọn khung hình cho video
+                    if (this.callInfoCenter) {
+                        this.callInfoCenter.style.opacity = "0";
+                        setTimeout(() => {
+                            if (this.remoteVideo.style.display !== "none") {
+                                this.callInfoCenter.style.display = "none";
+                            }
+                        }, 300);
+                    }
                     this.remoteVideo.play().catch(err => console.warn("[WebRTC] remote video play:", err));
                 }
             }
@@ -916,6 +1167,7 @@ class CallManager {
             console.log("[WebRTC] Connection state changed:", pc.connectionState);
             if (pc.connectionState === "connected") {
                 if (this.stateEl) this.stateEl.textContent = "Đã kết nối";
+                this.applyHighQualityVideoBitrate();
             } else if (pc.connectionState === "disconnected") {
                 if (this.stateEl) this.stateEl.textContent = "Mất kết nối tạm thời...";
             } else if (pc.connectionState === "failed") {
@@ -952,6 +1204,8 @@ class CallManager {
                 offerToReceiveAudio: true,
                 offerToReceiveVideo: isVideo
             });
+            // Tăng cường chất lượng SDP bitrate (2.5 Mbps)
+            offer.sdp = this.boostSdpQuality(offer.sdp);
             await pc.setLocalDescription(offer);
 
             window.chatSocket.sendCallSignal({
@@ -973,6 +1227,7 @@ class CallManager {
                 if (this.localStream && this.activeCall.type === "video" && this.localStream.getVideoTracks().length > 0) {
                     this.localScreen.style.display = "block";
                     this.localVideo.srcObject = this.localStream;
+                    this.localVideo.style.transform = "scaleX(-1)";
                 }
             }
 
@@ -985,7 +1240,11 @@ class CallManager {
                 offerToReceiveAudio: true,
                 offerToReceiveVideo: isVideo
             });
+            // Tăng cường chất lượng SDP bitrate (2.5 Mbps)
+            answer.sdp = this.boostSdpQuality(answer.sdp);
             await pc.setLocalDescription(answer);
+
+            this.applyHighQualityVideoBitrate();
 
             window.chatSocket.sendCallSignal({
                 action: "webrtc_answer",
@@ -1003,6 +1262,7 @@ class CallManager {
             if (this.peerConnection) {
                 await this.peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
                 await this.drainPendingIceCandidates();
+                this.applyHighQualityVideoBitrate();
             }
         } catch (e) {
             console.error("[WebRTC] Error handling answer:", e);
@@ -1030,7 +1290,9 @@ class CallManager {
         }
         if (this.btnMic) {
             this.btnMic.classList.toggle("active-muted", this.isMuted);
-            this.btnMic.innerHTML = this.isMuted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
+            this.btnMic.innerHTML = this.isMuted 
+                ? '<i class="fa-solid fa-microphone-slash"></i>' 
+                : '<i class="fa-solid fa-microphone"></i>';
         }
     }
 
@@ -1041,7 +1303,13 @@ class CallManager {
         }
         if (this.btnCam) {
             this.btnCam.classList.toggle("active-muted", this.isCamOff);
-            this.btnCam.innerHTML = this.isCamOff ? '<i class="fa-solid fa-video-slash"></i>' : '<i class="fa-solid fa-video"></i>';
+            this.btnCam.innerHTML = this.isCamOff 
+                ? '<i class="fa-solid fa-video-slash"></i>' 
+                : '<i class="fa-solid fa-video"></i>';
+        }
+        // Hiện hoặc ẩn placeholder icon camera tắt trên khung local screen
+        if (this.localCamOffPlaceholder) {
+            this.localCamOffPlaceholder.style.display = this.isCamOff ? "flex" : "none";
         }
     }
 
