@@ -314,8 +314,70 @@ def init_db():
             cursor.execute("ALTER TABLE participants ADD COLUMN nickname TEXT DEFAULT ''")
         except Exception:
             pass
+        for col_def in [
+            "ALTER TABLE users ADD COLUMN phone TEXT",
+            "ALTER TABLE users ADD COLUMN dob TEXT DEFAULT ''",
+            "ALTER TABLE users ADD COLUMN gender TEXT DEFAULT 'unspecified'"
+        ]:
+            try:
+                cursor.execute(col_def)
+            except Exception:
+                pass
+        try:
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)")
+        except Exception:
+            pass
         conn.commit()
         conn.close()
+
+def sync_accounts_to_files():
+    """Tự động đồng bộ toàn bộ danh sách tài khoản người dùng ra file accounts.csv và accounts.json"""
+    import csv
+    import json
+    try:
+        conn = get_db()
+        rows = conn.execute("""
+            SELECT id, username, COALESCE(phone, '') as phone, password, display_name, 
+                   avatar_url, status, bio, created_at, last_seen
+            FROM users
+            ORDER BY id ASC
+        """).fetchall()
+        conn.close()
+
+        accounts_list = []
+        for r in rows:
+            acc = dict(r) if hasattr(r, "keys") else dict(zip(
+                ["id", "username", "phone", "password", "display_name", "avatar_url", "status", "bio", "created_at", "last_seen"],
+                r
+            ))
+            if acc.get("created_at"):
+                acc["created_at"] = str(acc["created_at"])
+            if acc.get("last_seen"):
+                acc["last_seen"] = str(acc["last_seen"])
+            accounts_list.append(acc)
+
+        # 1. Ghi ra file accounts.json
+        with open("accounts.json", "w", encoding="utf-8") as f:
+            json.dump(accounts_list, f, ensure_ascii=False, indent=2, default=str)
+
+        # 2. Ghi ra file accounts.csv (sử dụng utf-8-sig để Excel mở không bị lỗi font tiếng Việt)
+        with open("accounts.csv", "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["ID", "Thời gian đăng ký", "Tên đăng nhập", "Họ và tên", "Mật khẩu", "Số điện thoại", "Trạng thái", "Tiểu sử"])
+            for r in accounts_list:
+                writer.writerow([
+                    r.get("id"),
+                    r.get("created_at") or "",
+                    r.get("username") or "",
+                    r.get("display_name") or "",
+                    r.get("password") or "",
+                    r.get("phone") or "",
+                    r.get("status") or "",
+                    r.get("bio") or ""
+                ])
+        print(f"[Accounts] Đã đồng bộ thành công {len(accounts_list)} tài khoản ra accounts.csv và accounts.json")
+    except Exception as e:
+        print("[Accounts] Lỗi đồng bộ tài khoản ra file:", e)
 
 def seed_db():
     conn = get_db()
@@ -406,6 +468,7 @@ def seed_db():
 
     conn.commit()
     conn.close()
+    sync_accounts_to_files()
 
 if __name__ == "__main__":
     init_db()

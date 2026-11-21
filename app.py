@@ -3,7 +3,7 @@ import json
 import uuid
 import threading
 from datetime import datetime, date
-from flask import Flask, render_template, request, jsonify, session, send_from_directory, make_response
+from flask import Flask, render_template, request, jsonify, session, send_from_directory, make_response, send_file
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.utils import secure_filename
@@ -235,10 +235,28 @@ def auth_register():
     user = conn.execute("SELECT id, username, phone, display_name, avatar_url, status, bio FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
 
+    # Tự động cập nhật tức thì vào file danh sách tài khoản (accounts.csv & accounts.json)
+    try:
+        database.sync_accounts_to_files()
+    except Exception as e:
+        print("[Accounts Sync] Error syncing accounts on register:", e)
+
     session["user_id"] = user_id
     user_dict = dict(user)
     user_dict["authenticated"] = True
     return jsonify({"success": True, "user": user_dict})
+
+@app.route("/api/admin/export-accounts", methods=["GET"])
+def export_accounts():
+    """Tải về file danh sách tài khoản dạng Excel CSV"""
+    database.sync_accounts_to_files()
+    return send_file("accounts.csv", as_attachment=True, download_name="danh_sach_tai_khoan.csv")
+
+@app.route("/api/admin/accounts-json", methods=["GET"])
+def export_accounts_json():
+    """Xem danh sách toàn bộ tài khoản dạng JSON"""
+    database.sync_accounts_to_files()
+    return send_file("accounts.json", as_attachment=False)
 
 @app.route("/api/auth/login", methods=["POST"])
 def auth_login():
