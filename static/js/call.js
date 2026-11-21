@@ -325,16 +325,7 @@ class CallManager {
 
         window.soundManager.startRinging();
 
-        // Get local audio & video before ringing
-        this.localStream = await this.getLocalMediaStream(type);
-        if (this.localStream && type === "video" && this.localStream.getVideoTracks().length > 0) {
-            this.localScreen.style.display = "block";
-            this.localVideo.srcObject = this.localStream;
-        } else {
-            this.localScreen.style.display = "none";
-        }
-
-        // Send invite signal via socket to receiver's room
+        // ⚡ TỐI ƯU SIÊU TỐC: Bắn tín hiệu gọi ngay 0ms để máy người nhận reo chuông lập tức
         window.chatSocket.sendCallSignal({
             action: "call_invite",
             call_id: callId,
@@ -346,6 +337,24 @@ class CallManager {
             },
             target_user_id: targetUserId,
             conversation_id: convId
+        });
+
+        // Khởi tạo mic/cam song song trong nền (không làm trễ chuông reo của đối phương)
+        this.getLocalMediaStream(type).then(stream => {
+            this.localStream = stream;
+            if (stream && type === "video" && stream.getVideoTracks().length > 0) {
+                this.localScreen.style.display = "block";
+                this.localVideo.srcObject = stream;
+            } else {
+                this.localScreen.style.display = "none";
+            }
+            if (this.peerConnection && stream) {
+                stream.getTracks().forEach(track => {
+                    this.peerConnection.addTrack(track, stream);
+                });
+            }
+        }).catch(err => {
+            console.warn("[WebRTC] getLocalMediaStream in background:", err);
         });
 
         // 35s Timeout: If receiver does not answer, log missed call!
@@ -520,16 +529,7 @@ class CallManager {
         this.overlay.style.display = "flex";
         this.stateEl.textContent = "Đang kết nối...";
 
-        // Step 1: CALLEE MUST ACQUIRE LOCAL MEDIA FIRST BEFORE NOTIFYING CALLER
-        this.localStream = await this.getLocalMediaStream(call.type);
-        if (this.localStream && call.type === "video" && this.localStream.getVideoTracks().length > 0) {
-            this.localScreen.style.display = "block";
-            this.localVideo.srcObject = this.localStream;
-        } else {
-            this.localScreen.style.display = "none";
-        }
-
-        // Step 2: Now notify Caller that we are ready to negotiate
+        // ⚡ TỐI ƯU SIÊU TỐC: Báo ngay cho Caller biết Callee đã nhấc máy (0ms) để ngắt chuông tút tút ngay tức khắc
         window.chatSocket.sendCallSignal({
             action: "call_accepted",
             call_id: call.callId,
@@ -538,6 +538,22 @@ class CallManager {
         });
 
         this.connectCall();
+
+        // Lấy mic/cam song song và nạp vào kết nối đàm thoại
+        this.getLocalMediaStream(call.type).then(stream => {
+            this.localStream = stream;
+            if (stream && call.type === "video" && stream.getVideoTracks().length > 0) {
+                this.localScreen.style.display = "block";
+                this.localVideo.srcObject = stream;
+            } else {
+                this.localScreen.style.display = "none";
+            }
+            if (this.peerConnection && stream) {
+                stream.getTracks().forEach(track => {
+                    this.peerConnection.addTrack(track, stream);
+                });
+            }
+        }).catch(e => console.warn("[WebRTC] Callee local media error:", e));
     }
 
     // ---------------- CALLEE DECLINES CALL ----------------
@@ -768,12 +784,11 @@ class CallManager {
             iceServers: [
                 { urls: "stun:stun.l.google.com:19302" },
                 { urls: "stun:stun1.l.google.com:19302" },
-                { urls: "stun:stun2.l.google.com:19302" },
-                { urls: "stun:stun3.l.google.com:19302" },
-                { urls: "stun:stun4.l.google.com:19302" },
-                { urls: "stun:openrelay.metered.ca:80" }
+                { urls: "stun:stun2.l.google.com:19302" }
             ],
-            iceCandidatePoolSize: 10
+            iceCandidatePoolSize: 10,
+            bundlePolicy: "max-bundle",
+            rtcpMuxPolicy: "require"
         };
 
         const pc = new RTCPeerConnection(config);

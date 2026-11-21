@@ -195,6 +195,14 @@ class ChatSocket {
         }, 45000);
     }
 
+    sendMessage(data, callback) {
+        if (this.socket && this.socket.connected) {
+            this.socket.emit("send_message", data, callback);
+            return true;
+        }
+        return false;
+    }
+
     sendCallSignal(signalData) {
         if (this.socket) {
             this.socket.emit("call_signal", signalData);

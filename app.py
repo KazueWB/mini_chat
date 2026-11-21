@@ -953,22 +953,9 @@ def get_messages(conv_id):
         "friendship_info": friendship_info
     })
 
-@app.route("/api/conversations/<int:conv_id>/messages", methods=["POST"])
-def send_message_rest(conv_id):
-    user_id = get_current_user_id()
-    if not user_id:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    data = request.get_json() or {}
-    content = data.get("content", "").strip()
-    message_type = data.get("message_type", "text")
-    media_url = data.get("media_url")
-    media_name = data.get("media_name")
-    media_size = data.get("media_size")
-    reply_to_id = data.get("reply_to_id")
-
+def process_new_message(conv_id, user_id, content="", message_type="text", media_url=None, media_name=None, media_size=None, reply_to_id=None):
     if not content and not media_url:
-        return jsonify({"error": "Message is empty"}), 400
+        return None, "Message is empty"
 
     conn = database.get_db()
     cursor = conn.cursor()
@@ -998,6 +985,10 @@ def send_message_rest(conv_id):
         WHERE m.id = ?
     """, (msg_id,)).fetchone()
     
+    if not msg:
+        conn.close()
+        return None, "Message not found"
+
     msg_dict = dict(msg)
     if msg_dict.get("created_at"):
         msg_dict["created_at"] = format_datetime_utc(msg_dict["created_at"])
@@ -1091,7 +1082,47 @@ def send_message_rest(conv_id):
                 }
             )
 
+    return msg_dict, None
+
+@app.route("/api/conversations/<int:conv_id>/messages", methods=["POST"])
+def send_message_rest(conv_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    content = data.get("content", "").strip()
+    message_type = data.get("message_type", "text")
+    media_url = data.get("media_url")
+    media_name = data.get("media_name")
+    media_size = data.get("media_size")
+    reply_to_id = data.get("reply_to_id")
+
+    msg_dict, err = process_new_message(conv_id, user_id, content, message_type, media_url, media_name, media_size, reply_to_id)
+    if err:
+        return jsonify({"error": err}), 400
     return jsonify(msg_dict)
+
+@socketio.on("send_message")
+def on_socket_send_message(data):
+    user_id = sid_to_user.get(request.sid) or get_current_user_id()
+    if not user_id:
+        return {"error": "Unauthorized"}
+    conv_id = data.get("conversation_id")
+    if not conv_id:
+        return {"error": "Missing conversation_id"}
+    content = data.get("content", "").strip()
+    message_type = data.get("message_type", "text")
+    media_url = data.get("media_url")
+    media_name = data.get("media_name")
+    media_size = data.get("media_size")
+    reply_to_id = data.get("reply_to_id")
+    temp_id = data.get("temp_id")
+
+    msg_dict, err = process_new_message(conv_id, user_id, content, message_type, media_url, media_name, media_size, reply_to_id)
+    if err:
+        return {"error": err, "temp_id": temp_id}
+    return {"success": True, "message": msg_dict, "temp_id": temp_id}
 
 # ----------------- NICKNAME APIS -----------------
 @app.route("/api/conversations/<int:conv_id>/nicknames", methods=["POST"])

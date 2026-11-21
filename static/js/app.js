@@ -1078,33 +1078,29 @@ class ChatApp {
             return;
         }
 
-        // 5. Send to server in background
-        try {
-            const res = await fetch(`/api/conversations/${convId}/messages`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            });
-            if (!res.ok) throw new Error("Gửi tin nhắn thất bại HTTP " + res.status);
-            const realMsg = await res.json();
-            if (realMsg && realMsg.id) {
-                this.pendingMessagesMap.delete(tempId);
-                this.reconcileOptimisticMessage(tempId, realMsg);
-            }
-        } catch (err) {
-            console.error("Failed to send message:", err);
-            const el = document.getElementById(`msg-${tempId}`);
-            if (el) {
-                el.classList.add("msg-failed-row");
-                el.classList.remove("msg-pending");
-                const meta = el.querySelector(".msg-meta");
-                if (meta) {
-                    const tick = meta.querySelector(".msg-status-tick");
-                    if (tick) {
-                        tick.outerHTML = this.renderStatusTick("failed", false, true, tempId);
-                    }
+        // 5. Send to server in background (Ưu tiên WebSocket để tin nhắn bay tới đối phương trong 5-15ms, không độ trễ)
+        const socketPayload = {
+            conversation_id: convId,
+            content: text,
+            message_type: "text",
+            reply_to_id: this.replyTarget ? this.replyTarget.id : null,
+            temp_id: tempId
+        };
+
+        let sentViaSocket = false;
+        if (window.chatSocket && window.chatSocket.sendMessage) {
+            sentViaSocket = window.chatSocket.sendMessage(socketPayload, (res) => {
+                if (res && res.success && res.message) {
+                    this.pendingMessagesMap.delete(tempId);
+                    this.reconcileOptimisticMessage(tempId, res.message);
+                } else {
+                    this.markMessageFailed(tempId);
                 }
-            }
+            });
+        }
+
+        if (!sentViaSocket) {
+            this.sendViaHttp(convId, payload, tempId);
         }
     }
 
