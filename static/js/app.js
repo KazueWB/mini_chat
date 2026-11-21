@@ -344,7 +344,7 @@ class ChatApp {
         if (!this.presenceTimer) {
             this.presenceTimer = setInterval(() => {
                 if (this.activeConv && this.activeConv.conversation && this.activeConv.conversation.type === "direct") {
-                    const other = this.activeConv.participants.find(p => p.id !== this.currentUser.id);
+                    const other = this.activeConv.participants.find(p => Number(p.id) !== Number(this.currentUser.id));
                     if (other && other.status !== "online") {
                         this.updateChatHeaderStatus(other);
                     }
@@ -2732,7 +2732,7 @@ class ChatApp {
         document.getElementById("btn-call-audio").addEventListener("click", () => {
             if (!this.activeConv) return;
             const other = this.activeConv.conversation.type === "direct" 
-                ? this.activeConv.participants.find(p => p.id !== this.currentUser.id) 
+                ? this.activeConv.participants.find(p => Number(p.id) !== Number(this.currentUser.id)) 
                 : null;
             window.callManager.startCall("audio", other, this.activeConv.conversation);
         });
@@ -2740,7 +2740,7 @@ class ChatApp {
         document.getElementById("btn-call-video").addEventListener("click", () => {
             if (!this.activeConv) return;
             const other = this.activeConv.conversation.type === "direct" 
-                ? this.activeConv.participants.find(p => p.id !== this.currentUser.id) 
+                ? this.activeConv.participants.find(p => Number(p.id) !== Number(this.currentUser.id)) 
                 : null;
             window.callManager.startCall("video", other, this.activeConv.conversation);
         });
@@ -3012,7 +3012,7 @@ class ChatApp {
             const data = await res.json();
             if (data.id) {
                 await this.selectConversation(data.id);
-                const other = this.activeConv.participants.find(p => p.id !== this.currentUser.id);
+                const other = this.activeConv.participants.find(p => Number(p.id) !== Number(this.currentUser.id));
                 window.callManager.startCall(type, other, this.activeConv.conversation);
             }
         } catch (e) {

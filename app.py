@@ -1626,7 +1626,7 @@ def on_call_signal(data):
 
     if target_user_id:
         emit("call_signal", data, to=f"user_{target_user_id}")
-    if conv_id:
+    elif conv_id:
         emit("call_signal", data, to=f"conv_{conv_id}", include_self=False)
 
 if __name__ == "__main__":

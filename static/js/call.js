@@ -332,16 +332,16 @@ class CallManager {
         if (!targetUser && !targetConv) return;
 
         const convId = targetConv ? targetConv.id : (window.app.activeConv ? window.app.activeConv.conversation.id : null);
-        const callTargetName = targetUser ? targetUser.display_name : targetConv.name;
-        const callTargetAvatar = targetUser ? targetUser.avatar_url : (targetConv.avatar_url || "");
-        const targetUserId = targetUser ? targetUser.id : null;
+        const callTargetName = targetUser ? targetUser.display_name : (targetConv ? targetConv.name : "Người dùng");
+        const callTargetAvatar = targetUser ? targetUser.avatar_url : (targetConv ? (targetConv.avatar_url || "") : "");
+        const targetUserId = targetUser ? targetUser.id : (targetConv ? null : null);
 
         const callId = "call_" + Date.now();
         this.activeCall = {
             callId,
             role: "caller",
             type,
-            targetUser,
+            targetUser: targetUser || { id: targetUserId, display_name: callTargetName, avatar_url: callTargetAvatar },
             targetConvId: convId,
             status: "outgoing",
             startTime: null
@@ -408,20 +408,41 @@ class CallManager {
     handleSignal(data) {
         this.init();
         const action = data.action;
+        const currentUserId = (window.app && window.app.currentUser) ? Number(window.app.currentUser.id) : null;
+        const callerId = (data.caller && data.caller.id) ? Number(data.caller.id) : null;
+
+        // 1. Kiểm tra an toàn: Tuyệt đối không tự xử lý tín hiệu do chính mình phát ra (tránh loopback)
+        if (action === "call_invite" && callerId && currentUserId && callerId === currentUserId) {
+            console.log("[Call] Bỏ qua tín hiệu gọi từ chính tài khoản của mình");
+            return;
+        }
 
         if (action === "call_invite") {
-            // If already in a call, notify caller that we are busy
-            if (this.activeCall) {
+            // 2. Nếu nhận lại tín hiệu của chính cuộc gọi đang xử lý (duplicate packet) -> bỏ qua
+            if (this.activeCall && this.activeCall.callId === data.call_id) {
+                console.log("[Call] Bỏ qua call_invite trùng lặp:", data.call_id);
+                return;
+            }
+
+            // 3. Chỉ báo bận nếu máy này THỰC SỰ đang trong cuộc đàm thoại (status == "connected")
+            // hoặc đang bấm gọi cho người khác (status == "outgoing") của MỘT CUỘC GỌI KHÁC
+            if (this.activeCall && (this.activeCall.status === "connected" || this.activeCall.status === "outgoing") && this.activeCall.callId !== data.call_id) {
+                console.log("[Call] Thiết bị đang bận cuộc gọi khác:", this.activeCall.callId);
                 window.chatSocket.sendCallSignal({
                     action: "call_busy",
                     call_id: data.call_id,
-                    target_user_id: data.caller.id,
+                    target_user_id: data.caller ? data.caller.id : null,
                     conversation_id: data.conversation_id
                 });
                 return;
             }
 
-            // Enter incoming call state
+            // 4. Nếu đang có cuộc gọi cũ ở trạng thái rác/chờ -> Dọn dẹp sạch sẽ trước khi nhận cuộc gọi mới
+            if (this.activeCall) {
+                this.cleanupCall();
+            }
+
+            // Tiến hành nhận cuộc gọi đến (Callee)
             this.activeCall = {
                 callId: data.call_id,
                 role: "callee",
@@ -433,12 +454,12 @@ class CallManager {
             };
             this.pendingIceCandidates = [];
 
-            this.incomingName.textContent = data.caller.display_name;
-            this.incomingAvatar.src = data.caller.avatar_url;
+            this.incomingName.textContent = data.caller ? data.caller.display_name : "Cuộc gọi đến";
+            this.incomingAvatar.src = (data.caller && data.caller.avatar_url) ? data.caller.avatar_url : "/static/img/default-avatar.svg";
             this.incomingBadge.innerHTML = data.type === "video"
                 ? '<i class="fa-solid fa-video"></i> Cuộc gọi video đến'
                 : '<i class="fa-solid fa-phone-volume"></i> Cuộc gọi thoại đến';
-            this.incomingDesc.textContent = `${data.caller.display_name} đang gọi cho bạn...`;
+            this.incomingDesc.textContent = `${data.caller ? data.caller.display_name : "Người dùng"} đang gọi cho bạn...`;
             this.incomingModal.style.display = "flex";
 
             window.soundManager.startIncomingRing();
@@ -447,18 +468,20 @@ class CallManager {
             this.incomingCallData = data;
             this.startCallVibration();
             this.showCallNotification(data);
-            this.startTitleBlink(`📞 Cuộc gọi đến từ ${data.caller.display_name}!`);
+            this.startTitleBlink(`📞 Cuộc gọi đến từ ${data.caller ? data.caller.display_name : "bạn bè"}!`);
 
             // Auto-timeout after 30s on receiver
+            if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
             this.callTimeoutTimer = setTimeout(() => {
-                if (this.activeCall && this.activeCall.status === "incoming") {
+                if (this.activeCall && this.activeCall.callId === data.call_id && this.activeCall.status === "incoming") {
                     this.declineCall(true); // timed out
                 }
             }, 30000);
         }
 
         else if (action === "call_accepted") {
-            if (this.activeCall && this.activeCall.role === "caller") {
+            // Caller: Callee đã chấp nhận cuộc gọi
+            if (this.activeCall && this.activeCall.callId === data.call_id && this.activeCall.role === "caller") {
                 if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
                 window.soundManager.stopRinging();
                 this.connectCall();
@@ -468,19 +491,21 @@ class CallManager {
 
         else if (action === "call_declined" || action === "call_timeout") {
             // Caller: Callee đã từ chối hoặc hết 30s -> Lập tức ngắt chuông tút tút, báo bận và đóng modal
-            if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
-            window.soundManager.stopRinging();
-            window.soundManager.stopIncomingRing();
-            this.stopCallVibration();
-            this.closeCallNotification();
-            this.stopTitleBlink();
-            window.soundManager.playEndCall();
-            if (this.stateEl) this.stateEl.textContent = action === "call_timeout" ? "Không có phản hồi" : "Cuộc gọi bị từ chối";
-            if (this.timerEl) this.timerEl.textContent = "Đã kết thúc";
+            if (this.activeCall && this.activeCall.callId === data.call_id) {
+                if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
+                window.soundManager.stopRinging();
+                window.soundManager.stopIncomingRing();
+                this.stopCallVibration();
+                this.closeCallNotification();
+                this.stopTitleBlink();
+                window.soundManager.playEndCall();
+                if (this.stateEl) this.stateEl.textContent = action === "call_timeout" ? "Không có phản hồi" : "Cuộc gọi bị từ chối";
+                if (this.timerEl) this.timerEl.textContent = "Đã kết thúc";
 
-            setTimeout(() => {
-                this.cleanupCall();
-            }, 1800);
+                setTimeout(() => {
+                    this.cleanupCall();
+                }, 1800);
+            }
         }
 
         else if (action === "call_canceled") {
@@ -492,51 +517,61 @@ class CallManager {
             this.closeCallNotification();
             this.stopTitleBlink();
             if (this.incomingModal) this.incomingModal.style.display = "none";
-            this.activeCall = null;
-            this.incomingCallData = null;
+            this.cleanupCall();
         }
 
         else if (action === "call_busy") {
-            if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
-            window.soundManager.stopRinging();
-            window.soundManager.stopIncomingRing();
-            this.stopCallVibration();
-            this.closeCallNotification();
-            this.stopTitleBlink();
-            window.soundManager.playEndCall();
-            if (this.stateEl) this.stateEl.textContent = "Người dùng đang bận cuộc gọi khác";
-            if (this.timerEl) this.timerEl.textContent = "Đã kết thúc";
-            setTimeout(() => {
-                this.cleanupCall();
-            }, 2000);
+            // Caller: Callee bận
+            if (this.activeCall && this.activeCall.callId === data.call_id) {
+                if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
+                window.soundManager.stopRinging();
+                window.soundManager.stopIncomingRing();
+                this.stopCallVibration();
+                this.closeCallNotification();
+                this.stopTitleBlink();
+                window.soundManager.playEndCall();
+                if (this.stateEl) this.stateEl.textContent = "Người dùng đang bận cuộc gọi khác";
+                if (this.timerEl) this.timerEl.textContent = "Đã kết thúc";
+                setTimeout(() => {
+                    this.cleanupCall();
+                }, 2000);
+            }
         }
 
         else if (action === "call_ended") {
             // Một trong hai bên ngắt máy khi đang đàm thoại -> Dừng ngay lập tức
-            if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
-            window.soundManager.stopRinging();
-            window.soundManager.stopIncomingRing();
-            this.stopCallVibration();
-            this.closeCallNotification();
-            this.stopTitleBlink();
-            window.soundManager.playEndCall();
-            if (this.stateEl) this.stateEl.textContent = "Cuộc gọi đã kết thúc";
-            if (this.timerEl) this.timerEl.textContent = "Đã ngắt máy";
-            setTimeout(() => {
-                this.cleanupCall();
-            }, 1000);
+            if (this.activeCall && this.activeCall.callId === data.call_id) {
+                if (this.callTimeoutTimer) clearTimeout(this.callTimeoutTimer);
+                window.soundManager.stopRinging();
+                window.soundManager.stopIncomingRing();
+                this.stopCallVibration();
+                this.closeCallNotification();
+                this.stopTitleBlink();
+                window.soundManager.playEndCall();
+                if (this.stateEl) this.stateEl.textContent = "Cuộc gọi đã kết thúc";
+                if (this.timerEl) this.timerEl.textContent = "Đã ngắt máy";
+                setTimeout(() => {
+                    this.cleanupCall();
+                }, 1000);
+            }
         }
 
         else if (action === "webrtc_offer") {
-            this.handleWebRTCOffer(data.sdp);
+            if (this.activeCall && this.activeCall.callId === data.call_id) {
+                this.handleWebRTCOffer(data.sdp);
+            }
         }
 
         else if (action === "webrtc_answer") {
-            this.handleWebRTCAnswer(data.sdp);
+            if (this.activeCall && this.activeCall.callId === data.call_id) {
+                this.handleWebRTCAnswer(data.sdp);
+            }
         }
 
         else if (action === "webrtc_ice") {
-            this.handleWebRTCIce(data.candidate);
+            if (this.activeCall && this.activeCall.callId === data.call_id) {
+                this.handleWebRTCIce(data.candidate);
+            }
         }
     }
 
