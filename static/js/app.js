@@ -1081,6 +1081,7 @@ class ChatApp {
         // 5. Send to server in background (Ưu tiên WebSocket để tin nhắn bay tới đối phương trong 5-15ms, không độ trễ)
         const socketPayload = {
             conversation_id: convId,
+            user_id: this.currentUser ? this.currentUser.id : null,
             content: text,
             message_type: "text",
             reply_to_id: this.replyTarget ? this.replyTarget.id : null,
@@ -1101,6 +1102,40 @@ class ChatApp {
 
         if (!sentViaSocket) {
             this.sendViaHttp(convId, payload, tempId);
+        }
+    }
+
+    async sendViaHttp(convId, payload, tempId) {
+        try {
+            const res = await fetch(`/api/conversations/${convId}/messages`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error("Gửi tin nhắn thất bại HTTP " + res.status);
+            const realMsg = await res.json();
+            if (realMsg && realMsg.id) {
+                this.pendingMessagesMap.delete(tempId);
+                this.reconcileOptimisticMessage(tempId, realMsg);
+            }
+        } catch (err) {
+            console.error("Failed to send message via HTTP:", err);
+            this.markMessageFailed(tempId);
+        }
+    }
+
+    markMessageFailed(tempId) {
+        const el = document.getElementById(`msg-${tempId}`);
+        if (el) {
+            el.classList.add("msg-failed-row");
+            el.classList.remove("msg-pending");
+            const meta = el.querySelector(".msg-meta");
+            if (meta) {
+                const tick = meta.querySelector(".msg-status-tick");
+                if (tick) {
+                    tick.outerHTML = this.renderStatusTick("failed", false, true, tempId);
+                }
+            }
         }
     }
 

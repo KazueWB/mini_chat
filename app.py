@@ -1105,10 +1105,13 @@ def send_message_rest(conv_id):
 
 @socketio.on("send_message")
 def on_socket_send_message(data):
-    user_id = sid_to_user.get(request.sid) or get_current_user_id()
+    user_id = data.get("user_id") or sid_to_user.get(request.sid) or get_current_user_id()
     if not user_id:
         return {"error": "Unauthorized"}
+    user_id = int(user_id)
     conv_id = data.get("conversation_id")
+    if conv_id:
+        conv_id = int(conv_id)
     if not conv_id:
         return {"error": "Missing conversation_id"}
     content = data.get("content", "").strip()

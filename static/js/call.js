@@ -239,11 +239,50 @@ class CallManager {
         }
     }
 
-    // Helper: Request local audio and optional video stream with echo cancellation & noise suppression
+    // Helper: Tạo Dummy Audio MediaStream khi trình duyệt chạy trên HTTP hoặc không có quyền micro
+    createDummyMediaStream(type) {
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+                const ctx = new AudioCtx();
+                const dest = ctx.createMediaStreamDestination();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                gain.gain.value = 0.001; // Silent
+                osc.connect(gain);
+                gain.connect(dest);
+                osc.start();
+                console.log("[WebRTC] Fallback: Đã tạo audio dummy stream để kết nối WebRTC không bị gián đoạn");
+                return dest.stream;
+            }
+        } catch (e) {
+            console.warn("[WebRTC] createDummyMediaStream failed:", e);
+        }
+        return null;
+    }
+
+    // Helper: Lấy Media Stream đảm bảo không bao giờ bị gọi đồng thời 2 lần (chống xung đột phần cứng)
     async getLocalMediaStream(type) {
+        if (this.localStream && this.localStream.active && this.localStream.getTracks().some(t => t.readyState === 'live')) {
+            return this.localStream;
+        }
+        if (this.mediaPromise) {
+            return await this.mediaPromise;
+        }
+
+        this.mediaPromise = this._acquireLocalMediaStream(type);
+        try {
+            this.localStream = await this.mediaPromise;
+            return this.localStream;
+        } finally {
+            this.mediaPromise = null;
+        }
+    }
+
+    async _acquireLocalMediaStream(type) {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            console.warn("[WebRTC] navigator.mediaDevices.getUserMedia not supported");
-            return null;
+            console.warn("[WebRTC] Trình duyệt không hỗ trợ getUserMedia trên context này (hoặc chạy qua HTTP). Sử dụng luồng thay thế.");
+            return this.createDummyMediaStream(type);
         }
 
         const audioConstraints = {
@@ -263,15 +302,15 @@ class CallManager {
                     }
                 });
             } catch (err) {
-                console.warn("[WebRTC] Video+audio acquisition failed, attempting audio only fallback:", err);
+                console.warn("[WebRTC] Không lấy được camera, chuyển sang chỉ dùng micro:", err);
                 try {
                     return await navigator.mediaDevices.getUserMedia({
                         audio: audioConstraints,
                         video: false
                     });
                 } catch (audioErr) {
-                    console.error("[WebRTC] Audio acquisition failed completely:", audioErr);
-                    return null;
+                    console.warn("[WebRTC] Không lấy được micro thật, dùng dummy stream để kết nối:", audioErr);
+                    return this.createDummyMediaStream(type);
                 }
             }
         } else {
@@ -281,8 +320,8 @@ class CallManager {
                     video: false
                 });
             } catch (err) {
-                console.error("[WebRTC] Audio acquisition failed:", err);
-                return null;
+                console.warn("[WebRTC] Không lấy được micro, dùng dummy stream để kết nối:", err);
+                return this.createDummyMediaStream(type);
             }
         }
     }
@@ -717,6 +756,7 @@ class CallManager {
         this.closeCallNotification();
         this.stopTitleBlink();
         this.incomingCallData = null;
+        this.mediaPromise = null;
 
         if (this.timerInterval) {
             clearInterval(this.timerInterval);
@@ -866,6 +906,10 @@ class CallManager {
 
     async initWebRTCOffer() {
         try {
+            // Đảm bảo Caller đã có localStream trước khi tạo Offer
+            if (!this.localStream && this.activeCall) {
+                this.localStream = await this.getLocalMediaStream(this.activeCall.type);
+            }
             const pc = this.createPeerConnection();
             const isVideo = Boolean(this.activeCall && this.activeCall.type === "video");
 
