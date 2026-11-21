@@ -1,5 +1,5 @@
 // Service Worker for Chat Together Web PWA & Web Push Notifications
-const CACHE_NAME = 'chat-together-v2';
+const CACHE_NAME = 'chat-together-v3';
 
 self.addEventListener('install', (event) => {
     self.skipWaiting();

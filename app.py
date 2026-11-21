@@ -46,6 +46,8 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["SECRET_KEY"] = "super-secret-chat-together-key-2026"
 app.config["UPLOAD_FOLDER"] = os.path.join(os.path.dirname(__file__), "static", "uploads")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB max upload
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 CORS(app)
@@ -122,7 +124,11 @@ def ensure_direct_conversation(conn, u1, u2):
 @app.route("/")
 @app.route("/index.html")
 def index():
-    return render_template("index.html")
+    response = make_response(render_template("index.html"))
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 @app.route("/sw.js")
 def service_worker():
