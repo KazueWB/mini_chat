@@ -193,6 +193,7 @@ def get_me():
     if user:
         res = dict(user)
         res["status"] = "online"
+        res["is_admin"] = database.is_admin(user_id)
         if res.get("created_at"):
             res["created_at"] = format_datetime_utc(res["created_at"])
         if res.get("last_seen"):
@@ -248,17 +249,24 @@ def auth_register():
     session["user_id"] = user_id
     user_dict = dict(user)
     user_dict["authenticated"] = True
+    user_dict["is_admin"] = database.is_admin(user_id)
     return jsonify({"success": True, "user": user_dict})
 
 @app.route("/api/admin/export-accounts", methods=["GET"])
 def export_accounts():
-    """Tải về file danh sách tài khoản dạng Excel CSV"""
+    """Tải về file danh sách tài khoản dạng Excel CSV (Chỉ Admin)"""
+    current_uid = get_current_user_id()
+    if not current_uid or not database.is_admin(current_uid):
+        return jsonify({"error": "Chỉ tài khoản Quản trị viên (Admin) mới có quyền truy cập!"}), 403
     database.sync_accounts_to_files()
     return send_file("accounts.csv", as_attachment=True, download_name="danh_sach_tai_khoan.csv")
 
 @app.route("/api/admin/accounts-json", methods=["GET"])
 def export_accounts_json():
-    """Xem danh sách toàn bộ tài khoản dạng JSON"""
+    """Xem danh sách toàn bộ tài khoản dạng JSON (Chỉ Admin)"""
+    current_uid = get_current_user_id()
+    if not current_uid or not database.is_admin(current_uid):
+        return jsonify({"error": "Chỉ tài khoản Quản trị viên (Admin) mới có quyền truy cập!"}), 403
     database.sync_accounts_to_files()
     return send_file("accounts.json", as_attachment=False)
 
@@ -270,6 +278,13 @@ def admin_get_users():
         return jsonify({"error": "Vui lòng đăng nhập để truy cập quản trị!"}), 401
     
     conn = database.get_db()
+    if not database.is_admin(current_uid, conn=conn):
+        conn.close()
+        return jsonify({"error": "Từ chối truy cập: Chỉ tài khoản Quản trị viên (Admin) mới có quyền xem danh sách này!"}), 403
+    
+    admin_rows = conn.execute("SELECT user_id FROM admins").fetchall()
+    admin_ids = {r["user_id"] if hasattr(r, "__getitem__") else r[0] for r in admin_rows}
+
     rows = conn.execute("""
         SELECT id, username, COALESCE(phone, '') as phone, password, display_name, 
                avatar_url, status, COALESCE(bio, '') as bio, 
@@ -289,6 +304,7 @@ def admin_get_users():
         pwd = item.get("password") or ""
         item["is_hashed"] = any(pwd.startswith(p) for p in ("scrypt:", "pbkdf2:", "argon2:", "$2b$", "$2a$"))
         item["password_hash"] = pwd
+        item["is_admin_user"] = (item["id"] in admin_ids)
         if item.get("created_at"):
             item["created_at"] = format_datetime_utc(item["created_at"])
         if item.get("last_seen"):
@@ -308,6 +324,8 @@ def admin_reset_password(target_user_id):
     current_uid = get_current_user_id()
     if not current_uid:
         return jsonify({"error": "Vui lòng đăng nhập!"}), 401
+    if not database.is_admin(current_uid):
+        return jsonify({"error": "Từ chối truy cập: Bạn không phải Quản trị viên (Admin)!"}), 403
 
     data = request.get_json() or {}
     new_password = str(data.get("new_password", "")).strip()
@@ -329,6 +347,8 @@ def admin_delete_user(target_user_id):
     current_uid = get_current_user_id()
     if not current_uid:
         return jsonify({"error": "Vui lòng đăng nhập!"}), 401
+    if not database.is_admin(current_uid):
+        return jsonify({"error": "Từ chối truy cập: Bạn không phải Quản trị viên (Admin)!"}), 403
 
     if target_user_id == current_uid:
         return jsonify({"error": "Bạn không thể tự xóa tài khoản của chính mình!"}), 400
@@ -396,6 +416,7 @@ def auth_login():
     if user_dict.get("last_seen"):
         user_dict["last_seen"] = format_datetime_utc(user_dict["last_seen"])
     user_dict["authenticated"] = True
+    user_dict["is_admin"] = database.is_admin(user["id"])
     return jsonify({"success": True, "user": user_dict})
 
 @app.route("/api/auth/logout", methods=["POST"])
@@ -431,6 +452,7 @@ def switch_user():
         session["user_id"] = user["id"]
         res = dict(user)
         res["authenticated"] = True
+        res["is_admin"] = database.is_admin(user["id"])
         return jsonify({"success": True, "user": res})
     return jsonify({"error": "User not found"}), 404
 

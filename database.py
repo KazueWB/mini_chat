@@ -192,6 +192,12 @@ def init_db():
             auth TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS admins (
+            id SERIAL PRIMARY KEY,
+            user_id INT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+            role VARCHAR(50) DEFAULT 'admin',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
         ALTER TABLE participants ADD COLUMN IF NOT EXISTS nickname VARCHAR(100) DEFAULT '';
 
         CREATE INDEX IF NOT EXISTS idx_messages_conv_id ON messages(conversation_id, id);
@@ -202,6 +208,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_pinned_conv ON pinned_messages(conversation_id);
         CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(sender_id, receiver_id, status);
         CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_admins_user ON admins(user_id);
         """)
         conn.commit()
         conn.close()
@@ -302,6 +309,14 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS admins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE,
+            role TEXT DEFAULT 'admin',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_messages_conv_id ON messages(conversation_id, id);
         CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
         CREATE INDEX IF NOT EXISTS idx_participants_user ON participants(user_id);
@@ -310,6 +325,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_pinned_conv ON pinned_messages(conversation_id);
         CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(sender_id, receiver_id, status);
         CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_admins_user ON admins(user_id);
         """)
         try:
             cursor.execute("ALTER TABLE participants ADD COLUMN nickname TEXT DEFAULT ''")
@@ -333,6 +349,62 @@ def init_db():
 
     # Tự động di chuyển mật khẩu cũ sang chuẩn băm an toàn (Password Hashing)
     migrate_passwords_to_hash()
+    # Tự động thiết lập tài khoản quản trị viên trong bảng admins
+    seed_admins()
+
+def is_admin(user_id, conn=None):
+    """Kiểm tra tài khoản người dùng có quyền quản trị viên trong bảng admins hay không"""
+    if not user_id:
+        return False
+    close_after = False
+    if conn is None:
+        conn = get_db()
+        close_after = True
+    try:
+        row = conn.execute("SELECT id FROM admins WHERE user_id = ?", (user_id,)).fetchone()
+        if close_after:
+            conn.close()
+        return bool(row)
+    except Exception as e:
+        if close_after:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        return False
+
+def seed_admins():
+    """Tự động đảm bảo các tài khoản quản trị viên tồn tại trong bảng admins"""
+    try:
+        conn = get_db()
+        # 1. Đảm bảo có tài khoản 'admin' trong bảng users
+        admin_user = conn.execute("SELECT id FROM users WHERE LOWER(username) = ?", ('admin',)).fetchone()
+        if not admin_user:
+            hashed_pwd = generate_password_hash("admin123456")
+            cur = conn.execute("""
+                INSERT INTO users (username, phone, password, display_name, avatar_url, status, bio)
+                VALUES (?, ?, ?, ?, ?, 'online', 'Tài khoản Quản Trị Viên Hệ Thống')
+            """, ('admin', '0900000000', hashed_pwd, 'Quản Trị Viên Hệ Thống', 'https://api.dicebear.com/7.x/bottts/svg?seed=AdminVIP'))
+            admin_uid = cur.lastrowid
+        else:
+            admin_uid = admin_user["id"]
+        
+        # Thêm tài khoản admin vào bảng admins nếu chưa có
+        exist_admin = conn.execute("SELECT id FROM admins WHERE user_id = ?", (admin_uid,)).fetchone()
+        if not exist_admin:
+            conn.execute("INSERT INTO admins (user_id, role) VALUES (?, 'superadmin')", (admin_uid,))
+
+        # 2. Thêm tài khoản 'z' (Bảo) vào bảng admins
+        z_user = conn.execute("SELECT id FROM users WHERE LOWER(username) = ?", ('z',)).fetchone()
+        if z_user:
+            exist_z = conn.execute("SELECT id FROM admins WHERE user_id = ?", (z_user["id"],)).fetchone()
+            if not exist_z:
+                conn.execute("INSERT INTO admins (user_id, role) VALUES (?, 'superadmin')", (z_user["id"],))
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("[DB] Lỗi seed_admins:", e)
 
 def migrate_passwords_to_hash():
     """Tự động kiểm tra và băm mật khẩu cho tất cả tài khoản nếu chưa băm"""
@@ -358,6 +430,9 @@ def delete_user_by_admin(user_id):
     """Xóa an toàn tài khoản người dùng và dọn dẹp các quan hệ ràng buộc trong cơ sở dữ liệu"""
     conn = get_db()
     try:
+        # Xóa khỏi bảng admins nếu có
+        conn.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
+
         # 1. Xóa ghim tin nhắn do user ghim hoặc trong tin nhắn của user
         conn.execute("DELETE FROM pinned_messages WHERE pinned_by = ?", (user_id,))
         conn.execute("DELETE FROM pinned_messages WHERE message_id IN (SELECT id FROM messages WHERE sender_id = ?)", (user_id,))

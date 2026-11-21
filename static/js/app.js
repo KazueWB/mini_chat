@@ -353,6 +353,11 @@ class ChatApp {
         this.myAvatar.src = this.currentUser.avatar_url;
         this.myStatusDot.className = "status-indicator online";
         
+        // Cập nhật hiển thị nút Quản trị viên (chỉ hiện khi đúng tài khoản admin)
+        if (this.btnNavAdmin) {
+            this.btnNavAdmin.style.display = (this.currentUser && this.currentUser.is_admin) ? "flex" : "none";
+        }
+
         window.chatSocket.connect(this.currentUser.id);
 
         if (window.pushManagerService) {
@@ -2284,6 +2289,11 @@ class ChatApp {
                 this.profileMyActions.style.display = "block";
                 this.profileOtherActions.style.display = "none";
 
+                // Chỉ hiển thị nút quản trị trong profile khi tài khoản là Admin
+                if (this.btnOpenAdminPanel) {
+                    this.btnOpenAdminPanel.style.display = (this.currentUser && this.currentUser.is_admin) ? "flex" : "none";
+                }
+
                 // Pre-fill edit inputs
                 this.editProfileName.value = data.display_name || '';
                 this.editProfilePhone.value = data.phone || '';
@@ -2533,6 +2543,10 @@ class ChatApp {
             alert("Vui lòng đăng nhập để truy cập bảng quản trị!");
             return;
         }
+        if (!this.currentUser.is_admin) {
+            alert("⛔ TỪ CHỐI TRUY CẬP:\n\nChỉ tài khoản Quản trị viên (Admin) mới có quyền truy cập bảng quản trị và xem danh sách tài khoản!");
+            return;
+        }
         if (this.modalUserProfile) {
             this.closeModal(this.modalUserProfile);
         }
@@ -2629,6 +2643,7 @@ class ChatApp {
                                 <span class="admin-user-name">
                                     ${this.escapeHTML(u.display_name || '--')}
                                     ${isMe ? '<span class="admin-you-tag">Bạn</span>' : ''}
+                                    ${u.is_admin_user ? '<span style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 600;"><i class="fa-solid fa-crown" style="font-size:9px;"></i> Admin</span>' : ''}
                                 </span>
                                 <span class="admin-user-handle">@${this.escapeHTML(u.username || '')}</span>
                             </div>

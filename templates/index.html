@@ -65,6 +65,10 @@
                 <div class="auth-quick-demo">
                     <span class="auth-divider">hoặc thử nhanh tài khoản có sẵn:</span>
                     <div class="demo-user-chips">
+                        <button type="button" class="demo-chip" style="background: rgba(99, 102, 241, 0.18); border: 1px solid rgba(99, 102, 241, 0.4); color: #818cf8; font-weight: 600;"
+                            onclick="window.app.fillLogin('admin', 'admin123456')">👑 Admin (admin / admin123456)</button>
+                        <button type="button" class="demo-chip" style="background: rgba(168, 85, 247, 0.18); border: 1px solid rgba(168, 85, 247, 0.4); color: #c084fc; font-weight: 600;"
+                            onclick="window.app.fillLogin('z', 'bao12345')">👑 Bảo Admin (@z / bao12345)</button>
                         <button type="button" class="demo-chip"
                             onclick="window.app.fillLogin('0901234567', '123456')">👨 An (0901234567)</button>
                         <button type="button" class="demo-chip"
@@ -131,7 +135,7 @@
                     <button class="nav-btn" data-action="new-group" title="Tạo nhóm chat">
                         <i class="fa-solid fa-users-viewfinder"></i>
                     </button>
-                    <button class="nav-btn" id="btn-nav-admin" title="🛡️ Quản trị hệ thống & Quản lý tài khoản (Admin)">
+                    <button class="nav-btn" id="btn-nav-admin" title="🛡️ Quản trị hệ thống & Quản lý tài khoản (Admin)" style="display:none;">
                         <i class="fa-solid fa-shield-halved"></i>
                     </button>
                 </nav>

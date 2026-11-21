@@ -139,7 +139,7 @@
     "dob": "2000-02-22",
     "gender": "male",
     "created_at": "2026-10-17 08:32:11.034718",
-    "last_seen": "2026-11-21 15:35:56.301295",
+    "last_seen": "2026-11-21 15:45:48.467972",
     "is_hashed": true,
     "password_hash": "scrypt:32768:8:1$83q9wUDrGksuECZC$cd015278d85bd4a6f1040eb2033dce560f3d5f1403dbb798b90023e53761f1d89ad53d6e339d995a99799b9b305358a5affa082cf0789abe8f7d20f492e38902"
   },
@@ -230,13 +230,29 @@
     "password": "scrypt:32768:8:1$RWMdVKkSYlp3y4Em$42bb92ffff1f0b7b3dc4ea9d33d012656daebbe21cc49d2a3bdb55f72c53e45585aeacc8e84648a5a9871980e77be2bf9a6c4e223ba6ea705d98e6890c6329ed",
     "display_name": "uuuuuu",
     "avatar_url": "https://api.dicebear.com/7.x/bottts/svg?seed=vn&backgroundColor=b6e3f4,ffd5dc,c0aede",
-    "status": "offline",
+    "status": "online",
     "bio": "Thành viên mới tham gia!",
     "dob": "",
     "gender": "unspecified",
     "created_at": "2026-11-21 14:36:49.253135",
-    "last_seen": "2026-11-21 15:11:16.483143",
+    "last_seen": "2026-11-21 15:45:23.726544",
     "is_hashed": true,
     "password_hash": "scrypt:32768:8:1$RWMdVKkSYlp3y4Em$42bb92ffff1f0b7b3dc4ea9d33d012656daebbe21cc49d2a3bdb55f72c53e45585aeacc8e84648a5a9871980e77be2bf9a6c4e223ba6ea705d98e6890c6329ed"
+  },
+  {
+    "id": 18,
+    "username": "admin",
+    "phone": "0900000000",
+    "password": "scrypt:32768:8:1$sPCV5iGwE5Q8PoCn$6a79e0b16f3a917dfca0eefd5b37cd853983aabe88f6b0eea8d8d8c1aaeb8a3ef660026e0c362c69bce7420eff0a1eb96ae7b8b52556cf6110af611bf0a70400",
+    "display_name": "Quản Trị Viên Hệ Thống",
+    "avatar_url": "https://api.dicebear.com/7.x/bottts/svg?seed=AdminVIP",
+    "status": "online",
+    "bio": "Tài khoản Quản Trị Viên Tối Cao",
+    "dob": "",
+    "gender": "unspecified",
+    "created_at": "2026-11-21 15:46:23.829624",
+    "last_seen": "2026-11-21 15:46:23.829624",
+    "is_hashed": true,
+    "password_hash": "scrypt:32768:8:1$sPCV5iGwE5Q8PoCn$6a79e0b16f3a917dfca0eefd5b37cd853983aabe88f6b0eea8d8d8c1aaeb8a3ef660026e0c362c69bce7420eff0a1eb96ae7b8b52556cf6110af611bf0a70400"
   }
 ]
